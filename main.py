@@ -54,6 +54,8 @@ def main() -> None:
                          "no trades) and report how each message parses.")
     ap.add_argument("--show-noise", action="store_true",
                     help="With --backfill, also list ignored/noise messages.")
+    ap.add_argument("--doctor", action="store_true",
+                    help="Run preflight checks (config, MT5, parser, keys) and exit.")
     ap.add_argument("--web", action="store_true",
                     help="Launch the monitoring dashboard (FastAPI).")
     ap.add_argument("--demo", action="store_true",
@@ -71,6 +73,11 @@ def main() -> None:
 
         run_backfill(days=args.backfill, show_noise=args.show_noise)
         return
+
+    if args.doctor:
+        from bot.doctor import run as run_doctor
+
+        sys.exit(run_doctor())
 
     if args.web:
         if args.demo:

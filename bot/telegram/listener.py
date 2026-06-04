@@ -139,6 +139,41 @@ class TelegramListener:
         for msg in reversed(collected):  # chronological order
             yield (msg.id, msg.date, msg.message or "", bool(getattr(msg, "media", None)))
 
+    @property
+    def client(self) -> TelegramClient:
+        return self._client
+
+    async def resolve(self, target: Optional[str]):
+        """Resolve a chat for alerts/commands; ``None`` → your Saved Messages."""
+
+        if not target:
+            return await self._client.get_me()
+        try:
+            if str(target).lstrip("-").isdigit():
+                return await self._client.get_entity(int(target))
+            return await self._client.get_entity(target)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not resolve control chat '%s': %s", target, exc)
+            return await self._client.get_me()
+
+    def add_command_handler(self, chat, callback) -> None:
+        """Call ``callback(text) -> Optional[str]`` for messages in ``chat``.
+
+        Any returned string is sent back as a reply, enabling /status etc.
+        """
+
+        @self._client.on(events.NewMessage(chats=chat))
+        async def _cmd(event):  # noqa: ANN001
+            text = (event.message.message or "").strip()
+            if not text.startswith("/"):
+                return
+            try:
+                reply = await callback(text)
+                if reply:
+                    await event.reply(reply)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("command handler error: %s", exc)
+
     async def run_forever(self) -> None:
         """Block until disconnected/stopped, surviving transient errors."""
 

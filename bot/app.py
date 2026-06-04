@@ -16,12 +16,16 @@ from typing import List, Optional
 
 from .analytics.performance import PerformanceTracker
 from .config import BotConfig, get_config
+from .control import CommandBus, Controller, Notifier
+from .execution.monitor import PositionMonitor
+from .filters import TradingFilters
 from .intelligence.review import ReviewLogger
 from .intelligence.scorer import SignalScorer
 from .logger import audit, get_logger, setup_logging
 from .models import Intent
 from .mt5.executor import MT5Executor
 from .parser import build_parser
+from .recovery import reconcile_on_startup
 from .risk.manager import RiskManager
 from .state.manager import StateManager
 from .telegram.listener import TelegramListener
@@ -39,8 +43,11 @@ class TradingBot:
         self.tracker = PerformanceTracker(cfg.trades_file)
         self.scorer = SignalScorer(cfg.intelligence, pip_size=cfg.risk.pip_size)
         self.review = ReviewLogger(cfg.review_file)
+        self.filters = TradingFilters(cfg.filters)
         self.trader = Trader(cfg, self.executor, self.state, self.risk,
-                             tracker=self.tracker, scorer=self.scorer)
+                             tracker=self.tracker, scorer=self.scorer,
+                             filters=self.filters)
+        self.trader.on_trade = self._on_trade_event
         self.parser = build_parser(
             cfg.parser.mode,
             provider=cfg.parser.provider,
@@ -51,8 +58,16 @@ class TradingBot:
             gemini_model=cfg.parser.gemini_model,
         )
         self.listener = TelegramListener(cfg.telegram, self._on_message)
+        self.notifier = Notifier(enabled=cfg.control.alerts_enabled)
+        self.controller = Controller(cfg, self.executor, self.state, self.trader,
+                                     self.tracker, notifier=self.notifier)
+        self.commands = CommandBus(cfg, self.controller)
+        self.monitor = PositionMonitor(cfg.execution, self.executor, self.state,
+                                       pip_size=cfg.risk.pip_size)
         self._stopping = False
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._summary_task: Optional[asyncio.Task] = None
+        self._summary_day: Optional[str] = None
 
     # ----- message pipeline ------------------------------------------------
     async def _on_message(self, text: str, message_id: int) -> None:
@@ -80,11 +95,85 @@ class TradingBot:
 
         if not await self.executor.connect():
             raise RuntimeError("Failed to connect to MT5.")
-        await self.risk.start_day(await self.executor.account_balance())
+        self.risk.start_day(await self.executor.account_balance())
+
+        # Crash recovery: reconcile persisted state with the broker.
+        try:
+            await reconcile_on_startup(self.executor, self.state,
+                                       self.cfg.mt5.magic_base, self.tracker)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Startup reconciliation failed: %s", exc)
 
         await self.listener.start()
+
+        # Telegram alerts + remote control.
+        if self.cfg.control.alerts_enabled or self.cfg.control.telegram_control_enabled:
+            try:
+                target = await self.listener.resolve(self.cfg.control.control_chat)
+                self.notifier.bind(self.listener.client, target)
+                if self.cfg.control.telegram_control_enabled:
+                    self.listener.add_command_handler(
+                        target, self.controller.handle_command)
+                    log.info("Telegram control enabled on chat: %s",
+                             getattr(target, "title", None)
+                             or getattr(target, "username", None) or "Saved Messages")
+                await self.notifier.notify(
+                    f"🤖 GTMO bot online ({'DRY-RUN' if self.cfg.dry_run else 'LIVE'}, "
+                    f"parser={self.cfg.parser.mode}/{self.cfg.parser.provider}).")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not set up Telegram control/alerts: %s", exc)
+
+        self.commands.start()
+        self.monitor.start()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._summary_task = asyncio.create_task(self._summary_loop())
         log.info("Bot is live. Listening for signals…")
+
+    # ----- alerts ----------------------------------------------------------
+    def _on_trade_event(self, ev: dict) -> None:
+        """Sync hook from the trader → schedule a Telegram alert."""
+
+        if not self.cfg.control.alerts_enabled:
+            return
+        try:
+            asyncio.get_running_loop().create_task(self._send_trade_alert(ev))
+        except RuntimeError:
+            pass  # no running loop (e.g. tests) → skip
+
+    async def _send_trade_alert(self, ev: dict) -> None:
+        kind = ev.get("event")
+        if kind == "entry":
+            lo, hi = ev.get("zone", (None, None))
+            tag = " [DRY-RUN]" if ev.get("dry_run") else ""
+            text = (f"🟢 ENTRY #{ev['signal_id']} {ev['direction']} "
+                    f"{ev.get('symbol','XAUUSD')} {lo}-{hi} "
+                    f"SL {ev.get('sl')} · {ev.get('legs')} legs{tag}")
+        elif kind == "close":
+            pl = ev.get("profit", 0.0)
+            emoji = "✅" if pl >= 0 else "🔻"
+            text = (f"{emoji} CLOSE #{ev['signal_id']} {ev.get('label')} "
+                    f"{ev.get('reason')} · P/L {pl:+.2f}")
+        else:
+            return
+        await self.notifier.notify(text)
+
+    async def _summary_loop(self, interval: float = 300.0) -> None:
+        """Send a once-a-day performance summary (UTC date rollover)."""
+
+        if not self.cfg.control.daily_summary:
+            return
+        while not self._stopping:
+            try:
+                day = time.strftime("%Y-%m-%d", time.gmtime())
+                if self._summary_day is None:
+                    self._summary_day = day  # don't fire immediately on boot
+                elif day != self._summary_day:
+                    self._summary_day = day
+                    await self.notifier.notify(
+                        "📅 Daily summary\n" + self.controller.perf_text())
+            except Exception as exc:  # noqa: BLE001
+                log.debug("summary loop error: %s", exc)
+            await asyncio.sleep(interval)
 
     async def _heartbeat_loop(self, interval: float = 3.0) -> None:
         """Periodically persist a status snapshot for the web dashboard."""
@@ -121,9 +210,11 @@ class TradingBot:
             "open_signals": len(actives),
             "open_positions": sum(len(s.open_positions()) for s in actives),
             "emergency_stop": os.path.exists(self.cfg.emergency_stop_file),
+            "paused": self.controller.paused,
             "performance": self.tracker.summary(),
             "review_queue": self.review.count,
             "intel_enabled": self.cfg.intelligence.enabled,
+            "trailing_enabled": self.cfg.execution.trailing_enabled,
         }
         path = self.cfg.status_file
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -142,8 +233,15 @@ class TradingBot:
         self._stopping = True
         log.info("Shutting down…")
         audit("bot_stop")
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
+        try:
+            await self.notifier.notify("🛑 GTMO bot shutting down.")
+        except Exception:  # noqa: BLE001
+            pass
+        for task in (self._heartbeat_task, self._summary_task):
+            if task:
+                task.cancel()
+        await self.monitor.stop()
+        await self.commands.stop()
         await self.listener.stop()
         await self.executor.shutdown()
 

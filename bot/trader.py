@@ -32,6 +32,7 @@ class Trader:
         risk: RiskManager,
         tracker: Optional[PerformanceTracker] = None,
         scorer: Optional[SignalScorer] = None,
+        filters=None,
     ) -> None:
         self.cfg = cfg
         self.ex = executor
@@ -39,6 +40,10 @@ class Trader:
         self.risk = risk
         self.tracker = tracker
         self.scorer = scorer
+        self.filters = filters
+        # Optional async callback fired after a position is opened/closed so the
+        # app can push Telegram alerts without the trader knowing about it.
+        self.on_trade = None
         self._lock = asyncio.Lock()
 
     # ----- top-level dispatch ---------------------------------------------
@@ -82,14 +87,37 @@ class Trader:
         if entry is None:
             return
 
+        if self._is_paused():
+            log.warning("Paused — entry ignored.")
+            audit("entry_rejected", reason="paused", detail=repr(intent))
+            return
+
         ok, reason = self.risk.can_open_new_signal(len(self.state.active_signals()))
         if not ok:
             log.warning("Entry rejected: %s", reason)
             audit("entry_rejected", reason=reason, detail=repr(intent))
             return
 
+        # Condition filters: sessions / news blackout.
+        if self.filters is not None:
+            allowed, why = self.filters.allowed()
+            if not allowed:
+                log.warning("Entry blocked by filter: %s", why)
+                audit("entry_rejected", reason=f"filter:{why}", detail=repr(intent))
+                return
+
         price_info = await self.ex.current_price()
         market = price_info["ask"] if entry.direction.value == "BUY" else price_info["bid"]
+
+        # Spread guard.
+        max_spread = self.cfg.execution.max_spread_pips
+        if max_spread > 0:
+            spread_pips = (price_info["ask"] - price_info["bid"]) / self.cfg.risk.pip_size
+            if spread_pips > max_spread:
+                log.warning("Entry blocked: spread %.1f > max %.1f pips",
+                            spread_pips, max_spread)
+                audit("entry_rejected", reason="spread", spread_pips=round(spread_pips, 1))
+                return
         valid, reason = self.risk.validate_entry(entry, market)
         if not valid:
             log.warning("Entry failed validation: %s", reason)
@@ -133,6 +161,9 @@ class Trader:
             entry.entry_low, entry.entry_high, entry.sl, len(legs), lots,
             size_mult, " [DRY-RUN]" if self.cfg.dry_run else "",
         )
+        self._alert("entry", signal_id=sig.signal_id, direction=entry.direction.value,
+                    symbol=entry.symbol, zone=(entry.entry_low, entry.entry_high),
+                    sl=entry.sl, legs=len(legs), dry_run=self.cfg.dry_run)
 
         for leg, lot in zip(legs, lots):
             tp_price = leg.price
@@ -355,6 +386,17 @@ class Trader:
         ))
         # Feed realized P/L into the daily-loss guard too.
         self.risk.register_realized_pl(pl)
+        self._alert("close", signal_id=sig.signal_id, label=pos.tp_label,
+                    direction=sig.direction, profit=round(pl, 2), reason=reason)
+
+    def _alert(self, event: str, **data) -> None:
+        """Fire the optional trade-alert callback (set by the app)."""
+
+        if self.on_trade:
+            try:
+                self.on_trade({"event": event, **data})
+            except Exception as exc:  # noqa: BLE001
+                log.debug("alert callback failed: %s", exc)
 
     # ----- helpers ---------------------------------------------------------
     @staticmethod
@@ -365,3 +407,24 @@ class Trader:
 
     def _emergency_stop(self) -> bool:
         return os.path.exists(self.cfg.emergency_stop_file)
+
+    def _is_paused(self) -> bool:
+        return os.path.exists(self.cfg.control.pause_file)
+
+    # ----- public control API ---------------------------------------------
+    async def close_everything(self, reason: str = "manual") -> int:
+        """Close every open position across all active signals. Returns count."""
+
+        closed = 0
+        async with self._lock:
+            for sig in self.state.active_signals():
+                for pos in sig.open_positions():
+                    res = await self.ex.close_position(pos.ticket)
+                    if res.ok:
+                        self._record_trade(sig, pos, res, reason)
+                        self.state.mark_position_closed(sig.signal_id, pos.ticket)
+                        closed += 1
+                self.state.close_signal(sig.signal_id)
+        log.info("close_everything(%s): closed %d position(s).", reason, closed)
+        audit("close_everything", reason=reason, closed=closed)
+        return closed

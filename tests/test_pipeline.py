@@ -8,8 +8,9 @@ from __future__ import annotations
 import pytest
 
 from bot.analytics.performance import PerformanceTracker
-from bot.config import (BotConfig, IntelligenceConfig, MT5Config, ParserConfig,
-                        RiskConfig, TelegramConfig)
+from bot.config import (BotConfig, ControlConfig, DashboardConfig,
+                        ExecutionConfig, FiltersConfig, IntelligenceConfig,
+                        MT5Config, ParserConfig, RiskConfig, TelegramConfig)
 from bot.intelligence.scorer import SignalScorer
 from bot.mt5.executor import MT5Executor
 from bot.parser.signal_parser import SignalParser
@@ -17,7 +18,6 @@ from bot.risk.manager import RiskManager
 from bot.state.manager import StateManager
 from bot.trader import Trader
 
-pytestmark = pytest.mark.asyncio
 
 
 def _make(tmp_path, intel=None):
@@ -28,6 +28,14 @@ def _make(tmp_path, intel=None):
         risk=RiskConfig(risk_per_signal=0.01, one_position_per_tp=True),
         parser=ParserConfig(mode="regex"),
         intelligence=intel,
+        execution=ExecutionConfig(trailing_enabled=False),
+        filters=FiltersConfig(enabled=False),
+        control=ControlConfig(
+            command_file=str(tmp_path / "cmd.jsonl"),
+            control_file=str(tmp_path / "control.json"),
+            pause_file=str(tmp_path / "paused.flag"),
+        ),
+        dashboard=DashboardConfig(),
         dry_run=True,
         state_file=str(tmp_path / "state.json"),
         trades_file=str(tmp_path / "trades.jsonl"),

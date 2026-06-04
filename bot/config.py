@@ -119,6 +119,48 @@ class IntelligenceConfig:
 
 
 @dataclass
+class ExecutionConfig:
+    # Trailing stop / profit lock
+    trailing_enabled: bool = True
+    trail_start_pips: float = 100.0     # begin trailing after this much profit
+    trail_distance_pips: float = 80.0   # keep SL this far behind price
+    lock_after_tp: bool = True          # move SL to entry once first TP is hit
+    monitor_interval: float = 2.0       # seconds between position monitor passes
+    # Spread / condition guards
+    max_spread_pips: float = 0.0        # 0 = disabled; skip entries above this
+
+
+@dataclass
+class FiltersConfig:
+    enabled: bool = False
+    # Allowed trading windows as "HH:MM-HH:MM" in UTC, comma-separated.
+    sessions: list = field(default_factory=list)
+    # News/volatility blackout windows "YYYY-MM-DDTHH:MM/YYYY-MM-DDTHH:MM" (UTC).
+    news_blackout: list = field(default_factory=list)
+
+
+@dataclass
+class ControlConfig:
+    # File command bus (dashboard/CLI → bot).
+    command_file: str = "state/commands.jsonl"
+    control_file: str = "state/control.json"
+    pause_file: str = "state/paused.flag"
+    poll_interval: float = 1.0
+    # Telegram alerts + remote control
+    alerts_enabled: bool = True
+    telegram_control_enabled: bool = True
+    # Where to send alerts / read commands. Empty → your own Saved Messages.
+    control_chat: Optional[str] = None
+    daily_summary: bool = True
+
+
+@dataclass
+class DashboardConfig:
+    # Optional bearer token / password protecting the dashboard + control API.
+    token: Optional[str] = None
+
+
+@dataclass
 class ParserConfig:
     # regex | ai | hybrid
     mode: str = "hybrid"
@@ -137,6 +179,10 @@ class BotConfig:
     risk: RiskConfig
     parser: ParserConfig
     intelligence: IntelligenceConfig
+    execution: ExecutionConfig
+    filters: FiltersConfig
+    control: ControlConfig
+    dashboard: DashboardConfig
     dry_run: bool = True
     log_level: str = "INFO"
     log_dir: str = "logs"
@@ -144,6 +190,7 @@ class BotConfig:
     status_file: str = "state/status.json"
     trades_file: str = "state/trades.jsonl"
     review_file: str = "state/review_queue.jsonl"
+    symbols: list = field(default_factory=lambda: ["XAUUSD"])
     # Seconds; ignore messages older than this on startup catch-up.
     max_message_age: int = 120
     # Emergency kill switch file: if this path exists, no new trades are placed.
@@ -237,12 +284,47 @@ def get_config(require_secrets: bool = True) -> BotConfig:
         review_enabled=_get_bool("REVIEW_ENABLED", True),
     )
 
+    execution = ExecutionConfig(
+        trailing_enabled=_get_bool("TRAILING_ENABLED", True),
+        trail_start_pips=_get_float("TRAIL_START_PIPS", 100.0),
+        trail_distance_pips=_get_float("TRAIL_DISTANCE_PIPS", 80.0),
+        lock_after_tp=_get_bool("LOCK_AFTER_TP", True),
+        monitor_interval=_get_float("MONITOR_INTERVAL", 2.0),
+        max_spread_pips=_get_float("MAX_SPREAD_PIPS", 0.0),
+    )
+
+    filters = FiltersConfig(
+        enabled=_get_bool("FILTERS_ENABLED", False),
+        sessions=[s.strip() for s in (_get("TRADING_SESSIONS", "") or "").split(",") if s.strip()],
+        news_blackout=[s.strip() for s in (_get("NEWS_BLACKOUT", "") or "").split(",") if s.strip()],
+    )
+
+    control = ControlConfig(
+        command_file=_get("COMMAND_FILE", "state/commands.jsonl"),
+        control_file=_get("CONTROL_FILE", "state/control.json"),
+        pause_file=_get("PAUSE_FILE", "state/paused.flag"),
+        poll_interval=_get_float("CONTROL_POLL_INTERVAL", 1.0),
+        alerts_enabled=_get_bool("ALERTS_ENABLED", True),
+        telegram_control_enabled=_get_bool("TELEGRAM_CONTROL_ENABLED", True),
+        control_chat=_get("CONTROL_CHAT"),
+        daily_summary=_get_bool("DAILY_SUMMARY", True),
+    )
+
+    dashboard = DashboardConfig(token=_get("DASHBOARD_TOKEN"))
+
+    symbols = [s.strip().upper() for s in (_get("SYMBOLS", mt5.symbol) or "XAUUSD").split(",") if s.strip()]
+
     cfg = BotConfig(
         telegram=telegram,
         mt5=mt5,
         risk=risk,
         parser=parser,
         intelligence=intelligence,
+        execution=execution,
+        filters=filters,
+        control=control,
+        dashboard=dashboard,
+        symbols=symbols,
         dry_run=_get_bool("DRY_RUN", True),
         log_level=_get("LOG_LEVEL", "INFO"),
         log_dir=_get("LOG_DIR", "logs"),

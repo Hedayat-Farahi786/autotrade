@@ -483,6 +483,24 @@ class MT5Executor:
                 })
         return out
 
+    async def all_positions(self) -> List[Dict[str, Any]]:
+        return await self._run(self._all_positions_sync)
+
+    def _all_positions_sync(self) -> List[Dict[str, Any]]:
+        if self.simulate:
+            return [self._sim_pos_dict(p)
+                    for p in self._sim.positions.values()]  # type: ignore[union-attr]
+        out: List[Dict[str, Any]] = []
+        positions = mt5.positions_get()  # type: ignore[union-attr]
+        for p in positions or []:
+            out.append({
+                "ticket": p.ticket, "volume": p.volume, "type": p.type,
+                "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
+                "magic": p.magic, "comment": p.comment, "profit": p.profit,
+                "symbol": p.symbol,
+            })
+        return out
+
     @staticmethod
     def _sim_pos_dict(p: _SimPosition) -> Dict[str, Any]:
         return {"ticket": p.ticket, "volume": p.volume, "type": p.type,
