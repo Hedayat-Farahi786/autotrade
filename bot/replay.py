@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from typing import List
 
 from .config import get_config
 from .logger import audit, get_logger, setup_logging
@@ -58,14 +57,14 @@ async def _run(days: int, show_noise: bool) -> None:
     counts: Counter = Counter()
     total = 0
     actionable = 0
-    async for mid, date, text, has_media in listener.iter_history(days=days):
+    async for mid, date, text, _has_media in listener.iter_history(days=days):
         total += 1
         if not text.strip():
             if show_noise:
                 ts = date.strftime("%m-%d %H:%M") if date else "?"
                 print(f"[{ts}] #{mid:<7} (media/no-text)")
             continue
-        intents: List[Intent] = await parser.parse(text, mid)
+        intents: list[Intent] = await parser.parse(text, mid)
         act = [i for i in intents if i.type is not IntentType.NOISE]
         for i in intents:
             counts[i.type.value] += 1

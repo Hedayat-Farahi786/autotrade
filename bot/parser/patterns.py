@@ -9,10 +9,29 @@ from __future__ import annotations
 
 import re
 
-# A price for XAUUSD. Accepts "4470", "4470.5", "2,470.50". The comma-grouped
-# form is tried first (it's more specific); the plain form requires 3-6 digits
-# so a 4-digit gold price like "4462" is never clipped to "446".
-PRICE = r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{3,6}(?:\.\d{1,2})?)"
+# A tradable price. Accepts gold "4470"/"4470.5", thousands "2,470.50", and FX
+# "1.0850"/"150.250". Comma-grouped form first (most specific); the plain form
+# allows up to 5 decimals so FX majors parse too. Symbol-aware plausibility
+# (see signal_parser) rejects nonsense for the detected instrument.
+PRICE = r"(\d{1,3}(?:,\d{3})+(?:\.\d{1,5})?|\d{1,6}(?:\.\d{1,5})?)"
+
+# Plausible price ranges per instrument class (lo, hi) for validation.
+PRICE_RANGES = {
+    "XAUUSD": (100.0, 100000.0),
+    "XAGUSD": (1.0, 500.0),
+    "EURUSD": (0.3, 5.0),
+    "GBPUSD": (0.3, 5.0),
+    "USDJPY": (50.0, 500.0),
+    "US30": (1000.0, 100000.0),
+    "NAS100": (1000.0, 100000.0),
+    "US500": (100.0, 100000.0),
+    "BTCUSD": (1000.0, 10000000.0),
+}
+DEFAULT_PRICE_RANGE = (0.1, 10000000.0)
+
+
+def price_range(symbol: str):
+    return PRICE_RANGES.get((symbol or "").upper(), DEFAULT_PRICE_RANGE)
 
 # Direction keywords.
 RE_BUY = re.compile(r"\b(buy|long|bull)\b", re.I)
@@ -20,6 +39,29 @@ RE_SELL = re.compile(r"\b(sell|short|bear)\b", re.I)
 
 # The symbol — gold goes by many names.
 RE_SYMBOL = re.compile(r"\b(gold|xau\s*/?\s*usd|xauusd|xau)\b", re.I)
+
+# Multi-symbol detection. Maps channel wording → canonical symbol. Gold first
+# (the GTMO default); extend this table to support more instruments.
+SYMBOL_ALIASES = [
+    (re.compile(r"\b(gold|xau\s*/?\s*usd|xauusd|xau)\b", re.I), "XAUUSD"),
+    (re.compile(r"\b(silver|xag\s*/?\s*usd|xagusd|xag)\b", re.I), "XAGUSD"),
+    (re.compile(r"\b(eur\s*/?\s*usd|eurusd)\b", re.I), "EURUSD"),
+    (re.compile(r"\b(gbp\s*/?\s*usd|gbpusd|cable)\b", re.I), "GBPUSD"),
+    (re.compile(r"\b(usd\s*/?\s*jpy|usdjpy)\b", re.I), "USDJPY"),
+    (re.compile(r"\b(us30|dow|dji|wall\s*street)\b", re.I), "US30"),
+    (re.compile(r"\b(nas100|nasdaq|us100|ndx)\b", re.I), "NAS100"),
+    (re.compile(r"\b(spx500|sp500|s&p\s*500|us500)\b", re.I), "US500"),
+    (re.compile(r"\b(btc\s*/?\s*usd|btcusd|bitcoin)\b", re.I), "BTCUSD"),
+]
+
+
+def detect_symbol(text: str, default: str = "XAUUSD") -> str:
+    """Return the first instrument referenced in ``text`` (or ``default``)."""
+
+    for rx, sym in SYMBOL_ALIASES:
+        if rx.search(text or ""):
+            return sym
+    return default
 
 # Order kind hints.
 RE_MARKET = re.compile(r"\b(now|market|instant)\b", re.I)

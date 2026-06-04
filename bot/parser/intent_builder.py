@@ -6,8 +6,6 @@ the (somewhat fiddly) normalisation logic.
 """
 from __future__ import annotations
 
-from typing import List, Optional
-
 from ..logger import get_logger
 from ..models import (
     Direction,
@@ -71,11 +69,11 @@ INTENTS_SCHEMA = {
 def payload_to_intents(
     payload: dict,
     text: str,
-    message_id: Optional[int],
+    message_id: int | None,
     default_symbol: str,
     source: str,
-) -> List[Intent]:
-    out: List[Intent] = []
+) -> list[Intent]:
+    out: list[Intent] = []
     for raw in (payload or {}).get("intents", []):
         try:
             out.append(_one(raw, text, message_id, default_symbol, source))
@@ -96,7 +94,7 @@ def _val(raw: dict, key: str):
     return v
 
 
-def _one(raw: dict, text: str, message_id: Optional[int], default_symbol: str,
+def _one(raw: dict, text: str, message_id: int | None, default_symbol: str,
          source: str) -> Intent:
     itype = IntentType(raw["type"])
     intent = Intent(
@@ -107,7 +105,7 @@ def _one(raw: dict, text: str, message_id: Optional[int], default_symbol: str,
         confidence=float(_val(raw, "confidence") or 0.9),
     )
     if itype is IntentType.ENTRY:
-        tps: List[TakeProfit] = []
+        tps: list[TakeProfit] = []
         for tp in raw.get("take_profits") or []:
             price = tp.get("price")
             tps.append(

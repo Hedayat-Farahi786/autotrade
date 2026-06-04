@@ -11,7 +11,6 @@ prompt via ``cache_control`` so repeat calls are quick and cheap. See
 from __future__ import annotations
 
 import time
-from typing import List, Optional
 
 from ..logger import audit, get_logger
 from ..models import Intent
@@ -40,7 +39,7 @@ class AIParser:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "claude-haiku-4-5-20251001",
         default_symbol: str = "XAUUSD",
         max_tokens: int = 600,
@@ -56,7 +55,7 @@ class AIParser:
         self.max_tokens = max_tokens
         self._client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
 
-    async def parse(self, text: Optional[str], message_id: Optional[int] = None) -> List[Intent]:
+    async def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         if not text or not text.strip():
             return []
         text = text.strip()
@@ -93,7 +92,7 @@ class AIParser:
         return intents
 
     @staticmethod
-    def _extract_tool_input(resp) -> Optional[dict]:
+    def _extract_tool_input(resp) -> dict | None:
         for block in getattr(resp, "content", []) or []:
             if getattr(block, "type", None) == "tool_use":
                 return block.input

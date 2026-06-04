@@ -20,7 +20,7 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .config import BotConfig
 from .logger import audit, get_logger
@@ -62,7 +62,7 @@ class Notifier:
 
 class Controller:
     def __init__(self, cfg: BotConfig, executor, state, trader, tracker,
-                 notifier: Optional[Notifier] = None) -> None:
+                 notifier: Notifier | None = None) -> None:
         self.cfg = cfg
         self.ex = executor
         self.state = state
@@ -131,7 +131,7 @@ class Controller:
             + self.perf_text(perf)
         )
 
-    def perf_text(self, perf: Optional[Dict] = None) -> str:
+    def perf_text(self, perf: dict | None = None) -> str:
         perf = perf if perf is not None else (
             self.tracker.summary() if self.tracker else {})
         if not perf or perf.get("trades", 0) == 0:
@@ -143,7 +143,7 @@ class Controller:
             f"Avg R: {perf.get('avg_r')}  DD: {perf['max_drawdown']:.2f}"
         )
 
-    async def handle_command(self, cmd: str, source: str = "?") -> Optional[str]:
+    async def handle_command(self, cmd: str, source: str = "?") -> str | None:
         cmd = (cmd or "").strip().lstrip("/").lower()
         if cmd in {"status", "s"}:
             return await self.status_text()
@@ -197,7 +197,7 @@ class CommandBus:
     def __init__(self, cfg: BotConfig, controller: Controller) -> None:
         self.cfg = cfg
         self.controller = controller
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._offset = 0
         f = cfg.control.command_file
@@ -222,7 +222,7 @@ class CommandBus:
                     if size < self._offset:
                         self._offset = 0
                     if size > self._offset:
-                        with open(f, "r", encoding="utf-8") as fh:
+                        with open(f, encoding="utf-8") as fh:
                             fh.seek(self._offset)
                             lines = fh.readlines()
                             self._offset = fh.tell()

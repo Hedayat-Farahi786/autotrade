@@ -12,8 +12,6 @@ Run automatically on startup; safe to call repeatedly.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from .logger import audit, get_logger
 from .mt5.executor import MT5Executor
 from .state.manager import StateManager, TrackedPosition, TrackedSignal

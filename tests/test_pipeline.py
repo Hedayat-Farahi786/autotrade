@@ -5,19 +5,25 @@ resulting position/state changes, exercising parser → trader → executor.
 """
 from __future__ import annotations
 
-import pytest
-
 from bot.analytics.performance import PerformanceTracker
-from bot.config import (BotConfig, ControlConfig, DashboardConfig,
-                        ExecutionConfig, FiltersConfig, IntelligenceConfig,
-                        MT5Config, ParserConfig, RiskConfig, TelegramConfig)
+from bot.config import (
+    BotConfig,
+    ControlConfig,
+    DashboardConfig,
+    ExecutionConfig,
+    FiltersConfig,
+    IntelligenceConfig,
+    MT5Config,
+    ParserConfig,
+    RiskConfig,
+    TelegramConfig,
+)
 from bot.intelligence.scorer import SignalScorer
 from bot.mt5.executor import MT5Executor
 from bot.parser.signal_parser import SignalParser
 from bot.risk.manager import RiskManager
 from bot.state.manager import StateManager
 from bot.trader import Trader
-
 
 
 def _make(tmp_path, intel=None):

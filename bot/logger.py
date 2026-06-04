@@ -16,7 +16,7 @@ import os
 import sys
 import time
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict
+from typing import Any
 
 _CONFIGURED = False
 
@@ -77,6 +77,6 @@ def get_logger(name: str) -> logging.Logger:
 def audit(event: str, **fields: Any) -> None:
     """Emit a single structured audit record."""
 
-    record: Dict[str, Any] = {"ts": round(time.time(), 3), "event": event}
+    record: dict[str, Any] = {"ts": round(time.time(), 3), "event": event}
     record.update(fields)
     logging.getLogger("gtmo.audit").info(json.dumps(record, default=str))

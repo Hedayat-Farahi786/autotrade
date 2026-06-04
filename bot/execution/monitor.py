@@ -12,7 +12,6 @@ improve the stop, to avoid hammering the broker.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 from ..config import ExecutionConfig
 from ..logger import audit, get_logger
@@ -34,7 +33,7 @@ class PositionMonitor:
         self.ex = executor
         self.state = state
         self.pip = pip_size
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
     def start(self) -> None:
@@ -60,12 +59,12 @@ class PositionMonitor:
         signals = self.state.active_signals()
         if not signals:
             return
-        price = await self.ex.current_price()
-        bid, ask = price.get("bid", 0.0), price.get("ask", 0.0)
-        if not bid or not ask:
-            return
 
         for sig in signals:
+            price = await self.ex.current_price(sig.symbol)
+            bid, ask = price.get("bid", 0.0), price.get("ask", 0.0)
+            if not bid or not ask:
+                continue
             is_buy = sig.direction == "BUY"
             for pos in sig.open_positions():
                 if pos.open_price is None:
@@ -84,7 +83,7 @@ class PositionMonitor:
                                  sig.signal_id, pos.ticket, new_sl)
 
     def _trail_target(self, is_buy: bool, open_price: float, bid: float,
-                      ask: float) -> Optional[float]:
+                      ask: float) -> float | None:
         start = self.cfg.trail_start_pips * self.pip
         dist = self.cfg.trail_distance_pips * self.pip
         if is_buy:
@@ -99,7 +98,7 @@ class PositionMonitor:
             return ask + dist
 
     @staticmethod
-    def _improves(is_buy: bool, current_sl: Optional[float], new_sl: float) -> bool:
+    def _improves(is_buy: bool, current_sl: float | None, new_sl: float) -> bool:
         if current_sl is None:
             return True
         # Only tighten: raise SL for buys, lower SL for sells.

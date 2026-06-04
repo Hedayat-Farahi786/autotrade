@@ -19,7 +19,6 @@ Nothing here predicts the market. It enforces discipline and consistency.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from ..config import IntelligenceConfig
 from ..logger import get_logger
@@ -33,9 +32,9 @@ class Score:
     value: float                       # 0..1 overall quality
     take: bool                         # gate: should we act on it?
     size_factor: float                 # 0..1 multiplier on risk
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> dict:
         return {
             "value": round(self.value, 3),
             "take": self.take,
@@ -53,10 +52,10 @@ class SignalScorer:
         self,
         entry: EntrySignal,
         market_price: float,
-        perf: Optional[Dict] = None,
+        perf: dict | None = None,
     ) -> Score:
-        reasons: List[str] = []
-        components: List[float] = []
+        reasons: list[str] = []
+        components: list[float] = []
 
         # --- Stop-loss present ------------------------------------------
         if entry.sl is None:
@@ -111,7 +110,7 @@ class SignalScorer:
 
     # ------------------------------------------------------------------ #
     def _risk_reward(self, entry: EntrySignal, mid: float,
-                     sl_dist: Optional[float]) -> Optional[float]:
+                     sl_dist: float | None) -> float | None:
         if not sl_dist or sl_dist <= 0:
             return None
         tps = entry.concrete_tps
@@ -127,7 +126,7 @@ class SignalScorer:
         return round(reward / sl_dist, 2)
 
     def _chase_factor(self, entry: EntrySignal, market: float,
-                      sl_dist: Optional[float]):
+                      sl_dist: float | None):
         """How far has price moved past the entry toward target already?"""
 
         lo, hi = entry.entry_low, entry.entry_high
@@ -146,7 +145,7 @@ class SignalScorer:
             return (0.0, f"price {ratio:.1f}×SL past entry", True)
         return (max(0.2, 1 - ratio), f"chasing {ratio:.1f}×SL", False)
 
-    def _edge_factor(self, perf: Optional[Dict]):
+    def _edge_factor(self, perf: dict | None):
         if not perf or perf.get("trades", 0) < self.cfg.min_trades_for_edge:
             return None
         wr = perf.get("win_rate", 0.0)
@@ -159,5 +158,5 @@ class SignalScorer:
         return (round(comp, 3), f"recent edge wr={wr:.0%} pf={pf}")
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0

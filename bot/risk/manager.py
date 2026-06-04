@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 from ..config import IntelligenceConfig, RiskConfig
 from ..logger import get_logger
@@ -28,7 +27,7 @@ class DailyGuard:
 class RiskManager:
     def __init__(self, cfg: RiskConfig) -> None:
         self.cfg = cfg
-        self._guard: Optional[DailyGuard] = None
+        self._guard: DailyGuard | None = None
         self.halted = False
 
     # ----- daily loss protection ------------------------------------------
@@ -86,14 +85,14 @@ class RiskManager:
             )
 
     # ----- validation ------------------------------------------------------
-    def can_open_new_signal(self, open_signal_count: int) -> Tuple[bool, str]:
+    def can_open_new_signal(self, open_signal_count: int) -> tuple[bool, str]:
         if self.halted:
             return False, "daily loss limit reached"
         if open_signal_count >= self.cfg.max_open_signals:
             return False, f"max open signals ({self.cfg.max_open_signals}) reached"
         return True, "ok"
 
-    def validate_entry(self, entry: EntrySignal, market_price: float) -> Tuple[bool, str]:
+    def validate_entry(self, entry: EntrySignal, market_price: float) -> tuple[bool, str]:
         if entry.entry_low is None and entry.entry_high is None:
             return False, "no entry price"
         if entry.sl is None:
@@ -113,7 +112,7 @@ class RiskManager:
         equity: float,
         spec: SymbolSpec,
         num_positions: int,
-    ) -> List[float]:
+    ) -> list[float]:
         """Return a list of lot sizes, one per position to open."""
 
         num_positions = max(1, num_positions)

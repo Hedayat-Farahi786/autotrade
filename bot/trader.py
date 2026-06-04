@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
-from typing import List, Optional
 
 from .analytics.performance import PerformanceTracker, TradeRecord
 from .config import BotConfig
@@ -30,8 +28,8 @@ class Trader:
         executor: MT5Executor,
         state: StateManager,
         risk: RiskManager,
-        tracker: Optional[PerformanceTracker] = None,
-        scorer: Optional[SignalScorer] = None,
+        tracker: PerformanceTracker | None = None,
+        scorer: SignalScorer | None = None,
         filters=None,
     ) -> None:
         self.cfg = cfg
@@ -47,7 +45,7 @@ class Trader:
         self._lock = asyncio.Lock()
 
     # ----- top-level dispatch ---------------------------------------------
-    async def handle(self, intents: List[Intent]) -> None:
+    async def handle(self, intents: list[Intent]) -> None:
         for intent in intents:
             try:
                 await self._dispatch(intent)
@@ -98,6 +96,19 @@ class Trader:
             audit("entry_rejected", reason=reason, detail=repr(intent))
             return
 
+        # Multi-symbol: only trade configured symbols; ensure spec is loaded.
+        sym = (entry.symbol or self.cfg.mt5.symbol).upper()
+        if sym not in [s.upper() for s in self.cfg.symbols]:
+            log.warning("Entry skipped: symbol %s not in configured SYMBOLS %s",
+                        sym, self.cfg.symbols)
+            audit("entry_rejected", reason=f"symbol_not_configured:{sym}")
+            return
+        spec = await self.ex.ensure_symbol(sym)
+        if spec is None:
+            log.error("Entry skipped: could not resolve symbol %s at broker.", sym)
+            audit("entry_rejected", reason=f"symbol_unresolved:{sym}")
+            return
+
         # Condition filters: sessions / news blackout.
         if self.filters is not None:
             allowed, why = self.filters.allowed()
@@ -106,7 +117,7 @@ class Trader:
                 audit("entry_rejected", reason=f"filter:{why}", detail=repr(intent))
                 return
 
-        price_info = await self.ex.current_price()
+        price_info = await self.ex.current_price(sym)
         market = price_info["ask"] if entry.direction.value == "BUY" else price_info["bid"]
 
         # Spread guard.
@@ -149,10 +160,9 @@ class Trader:
         # Decide how many positions to open: one per concrete TP (+ runner),
         # unless configured for a single position.
         legs = self._plan_legs(entry)
-        spec = self.ex.spec
         equity = await self.ex.account_equity()
         base_lots = self.risk.size_positions(entry, equity, spec, len(legs))
-        lots = [self.ex.normalize_volume(l * size_mult) for l in base_lots]
+        lots = [self.ex.normalize_volume(lot * size_mult, sym) for lot in base_lots]
 
         sig = self.state.create_signal(entry, intent.message_id)
         log.info(
@@ -165,7 +175,7 @@ class Trader:
                     symbol=entry.symbol, zone=(entry.entry_low, entry.entry_high),
                     sl=entry.sl, legs=len(legs), dry_run=self.cfg.dry_run)
 
-        for leg, lot in zip(legs, lots):
+        for leg, lot in zip(legs, lots, strict=False):
             tp_price = leg.price
             # For an open runner with a hinted min distance, project a TP.
             if leg.is_open and leg.min_pips and entry.entry_mid:
@@ -186,6 +196,7 @@ class Trader:
                 order_kind=entry.order_kind.value,
                 magic=sig.magic,
                 comment=comment,
+                symbol=sym,
             )
             if res.ok and res.ticket:
                 open_price = res.price if res.price else (limit_price or market)
@@ -209,7 +220,7 @@ class Trader:
             else:
                 log.error("Leg %s open failed: %s", leg.label, res.comment)
 
-    def _plan_legs(self, entry: EntrySignal) -> List[TakeProfit]:
+    def _plan_legs(self, entry: EntrySignal) -> list[TakeProfit]:
         if not self.cfg.risk.one_position_per_tp:
             concrete = entry.concrete_tps
             return [concrete[0]] if concrete else [TakeProfit(price=None, label="TP1")]
@@ -219,7 +230,7 @@ class Trader:
         return legs
 
     def _leg_entry_price(self, entry: EntrySignal, leg: TakeProfit,
-                         legs: List[TakeProfit]) -> Optional[float]:
+                         legs: list[TakeProfit]) -> float | None:
         """Price for pending orders; ``None`` => market fill.
 
         For a LIMIT/STOP entry across a zone we spread the legs evenly between
@@ -357,15 +368,15 @@ class Trader:
 
     # ----- trade journaling ------------------------------------------------
     def _record_trade(self, sig: TrackedSignal, pos: TrackedPosition, res,
-                      reason: str, closed_volume: Optional[float] = None,
-                      profit: Optional[float] = None) -> None:
+                      reason: str, closed_volume: float | None = None,
+                      profit: float | None = None) -> None:
         if not self.tracker:
             return
         pl = profit if profit is not None else (res.profit if res else None)
         if pl is None:
             return
         vol = closed_volume if closed_volume is not None else (
-            (res.volume if res and res.volume else pos.volume))
+            res.volume if res and res.volume else pos.volume)
         # Risk for this slice scales with the fraction of the leg closed.
         frac = (vol / pos.volume) if pos.volume else 1.0
         risk_slice = round(pos.risk_amount * frac, 2)

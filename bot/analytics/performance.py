@@ -21,7 +21,6 @@ import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Dict, List, Optional
 
 from ..logger import audit, get_logger
 
@@ -45,7 +44,7 @@ class TradeRecord:
     closed_at: float = field(default_factory=time.time)
 
     @property
-    def r_multiple(self) -> Optional[float]:
+    def r_multiple(self) -> float | None:
         if self.risk_amount and self.risk_amount > 0:
             return round(self.profit / self.risk_amount, 3)
         return None
@@ -55,7 +54,7 @@ class TradeRecord:
         return self.profit > 0
 
 
-def summarize(records: List[Dict]) -> Dict:
+def summarize(records: list[dict]) -> dict:
     """Pure function: aggregate raw record dicts into performance metrics."""
 
     closed = [r for r in records if r.get("close_price") is not None]
@@ -126,7 +125,7 @@ class PerformanceTracker:
 
     def __init__(self, trades_file: str) -> None:
         self.trades_file = trades_file
-        self._records: List[Dict] = []
+        self._records: list[dict] = []
         self._lock = threading.RLock()
         self._load()
 
@@ -143,16 +142,16 @@ class PerformanceTracker:
                  trade.signal_id, trade.label, trade.direction, trade.profit,
                  trade.r_multiple, trade.reason)
 
-    def summary(self) -> Dict:
+    def summary(self) -> dict:
         with self._lock:
             return summarize(list(self._records))
 
-    def recent(self, n: int = 20) -> List[Dict]:
+    def recent(self, n: int = 20) -> list[dict]:
         with self._lock:
             return self._records[-n:]
 
     # ----- persistence -----------------------------------------------------
-    def _append(self, data: Dict) -> None:
+    def _append(self, data: dict) -> None:
         try:
             os.makedirs(os.path.dirname(self.trades_file) or ".", exist_ok=True)
             with open(self.trades_file, "a", encoding="utf-8") as fh:
@@ -164,7 +163,7 @@ class PerformanceTracker:
         if not os.path.exists(self.trades_file):
             return
         try:
-            with open(self.trades_file, "r", encoding="utf-8") as fh:
+            with open(self.trades_file, encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if line:
@@ -174,14 +173,14 @@ class PerformanceTracker:
             log.warning("Failed to load trade journal: %s", exc)
 
 
-def load_records(trades_file: str) -> List[Dict]:
+def load_records(trades_file: str) -> list[dict]:
     """Read raw trade records from a journal file (used by the dashboard)."""
 
-    out: List[Dict] = []
+    out: list[dict] = []
     if not os.path.exists(trades_file):
         return out
     try:
-        with open(trades_file, "r", encoding="utf-8") as fh:
+        with open(trades_file, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if line:

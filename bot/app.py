@@ -12,7 +12,6 @@ import json
 import os
 import signal
 import time
-from typing import List, Optional
 
 from .analytics.performance import PerformanceTracker
 from .config import BotConfig, get_config
@@ -65,13 +64,13 @@ class TradingBot:
         self.monitor = PositionMonitor(cfg.execution, self.executor, self.state,
                                        pip_size=cfg.risk.pip_size)
         self._stopping = False
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._summary_task: Optional[asyncio.Task] = None
-        self._summary_day: Optional[str] = None
+        self._heartbeat_task: asyncio.Task | None = None
+        self._summary_task: asyncio.Task | None = None
+        self._summary_day: str | None = None
 
     # ----- message pipeline ------------------------------------------------
     async def _on_message(self, text: str, message_id: int) -> None:
-        intents: List[Intent] = await self.parser.parse(text, message_id)
+        intents: list[Intent] = await self.parser.parse(text, message_id)
         if not intents:
             return
         actionable = [i for i in intents if i.type.value != "NOISE"]

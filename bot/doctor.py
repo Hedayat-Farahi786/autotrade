@@ -8,7 +8,6 @@ report and exits non-zero if anything critical fails.
 from __future__ import annotations
 
 import asyncio
-from typing import List, Tuple
 
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
@@ -21,7 +20,7 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 
 class _Report:
     def __init__(self) -> None:
-        self.rows: List[Tuple[str, str, str]] = []
+        self.rows: list[tuple[str, str, str]] = []
 
     def add(self, status: str, name: str, detail: str = "") -> None:
         self.rows.append((status, name, detail))
@@ -88,7 +87,7 @@ async def _run() -> int:
 
     # --- MT5 connection -------------------------------------------------
     try:
-        from .mt5.executor import MT5Executor, _MT5_AVAILABLE
+        from .mt5.executor import MT5Executor
 
         ex = MT5Executor(cfg.mt5, dry_run=cfg.dry_run)
         connected = await ex.connect()

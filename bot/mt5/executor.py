@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from ..config import MT5Config
 from ..logger import audit, get_logger
@@ -36,12 +35,12 @@ except Exception:  # noqa: BLE001
 @dataclass
 class OrderResult:
     ok: bool
-    ticket: Optional[int] = None
-    price: Optional[float] = None
-    volume: Optional[float] = None
+    ticket: int | None = None
+    price: float | None = None
+    volume: float | None = None
     comment: str = ""
     raw: Any = None
-    profit: Optional[float] = None      # realized P/L for closes
+    profit: float | None = None      # realized P/L for closes
 
 
 @dataclass
@@ -83,17 +82,29 @@ class _Simulator:
         self.balance = start_balance
         self.equity = start_balance
         self._next_ticket = 500000
-        self.positions: Dict[int, _SimPosition] = {}
+        self.positions: dict[int, _SimPosition] = {}
         # Seed a plausible XAUUSD price; updated on each entry.
-        self._price = 4470.0
+        # Per-symbol reference prices (multi-symbol aware).
+        self._prices: dict[str, float] = {symbol: 4470.0}
+
+    def _default_price(self, symbol: str) -> float:
+        if symbol.startswith("XAU"):
+            return 4470.0
+        if symbol.startswith("BTC"):
+            return 65000.0
+        if symbol in {"US30"}:
+            return 39000.0
+        if symbol in {"NAS100", "US100"}:
+            return 18000.0
+        return 1.1000  # generic FX
 
     def _new_ticket(self) -> int:
         self._next_ticket += 1
         return self._next_ticket
 
-    def symbol_spec(self) -> SymbolSpec:
+    def symbol_spec(self, symbol: str | None = None) -> SymbolSpec:
         return SymbolSpec(
-            name=self._symbol,
+            name=symbol or self._symbol,
             digits=2,
             point=0.01,
             tick_size=0.01,
@@ -105,23 +116,32 @@ class _Simulator:
             stops_level=0,
         )
 
-    def tick(self) -> Dict[str, float]:
-        return {"bid": self._price - 0.05, "ask": self._price + 0.05}
+    def tick(self, symbol: str | None = None) -> dict[str, float]:
+        sym = symbol or self._symbol
+        price = self._prices.get(sym)
+        if price is None:
+            price = self._default_price(sym)
+            self._prices[sym] = price
+        # Proportional half-spread so FX (~1.08) isn't given a 500-pip spread.
+        half = max(price * 1e-5, 1e-5)
+        return {"bid": round(price - half, 6), "ask": round(price + half, 6)}
 
-    def set_reference_price(self, price: float) -> None:
-        self._price = price
+    def set_reference_price(self, price: float, symbol: str | None = None) -> None:
+        self._prices[symbol or self._symbol] = price
 
     def open(self, *, type_: int, volume: float, price: float, sl: float,
-             tp: float, magic: int, comment: str) -> OrderResult:
+             tp: float, magic: int, comment: str,
+             symbol: str | None = None) -> OrderResult:
         t = self._new_ticket()
         self.positions[t] = _SimPosition(
-            ticket=t, symbol=self._symbol, type=type_, volume=round(volume, 2),
-            price_open=price, sl=sl, tp=tp, magic=magic, comment=comment,
+            ticket=t, symbol=symbol or self._symbol, type=type_,
+            volume=round(volume, 2), price_open=price, sl=sl, tp=tp,
+            magic=magic, comment=comment,
         )
         return OrderResult(ok=True, ticket=t, price=price, volume=volume,
                            comment="sim-open")
 
-    def modify(self, ticket: int, sl: Optional[float], tp: Optional[float]) -> OrderResult:
+    def modify(self, ticket: int, sl: float | None, tp: float | None) -> OrderResult:
         pos = self.positions.get(ticket)
         if not pos:
             return OrderResult(ok=False, comment="sim: position not found")
@@ -131,17 +151,17 @@ class _Simulator:
             pos.tp = tp
         return OrderResult(ok=True, ticket=ticket, comment="sim-modify")
 
-    def close(self, ticket: int, volume: Optional[float],
-              price: Optional[float] = None) -> OrderResult:
+    def close(self, ticket: int, volume: float | None,
+              price: float | None = None) -> OrderResult:
         pos = self.positions.get(ticket)
         if not pos:
             return OrderResult(ok=False, comment="sim: position not found")
         vol = pos.volume if volume is None else min(volume, pos.volume)
-        tick = self.tick()
+        tick = self.tick(pos.symbol)
         is_buy = pos.type == 0
         fill = price if price is not None else (tick["bid"] if is_buy else tick["ask"])
         sign = 1.0 if is_buy else -1.0
-        contract = self.symbol_spec().contract_size
+        contract = self.symbol_spec(pos.symbol).contract_size
         profit = round((fill - pos.price_open) * sign * vol * contract, 2)
         self.balance = round(self.balance + profit, 2)
         self.equity = self.balance
@@ -162,9 +182,10 @@ class MT5Executor:
         self.simulate = dry_run or not _MT5_AVAILABLE
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5")
         self._lock = threading.Lock()
-        self._sim: Optional[_Simulator] = None
+        self._sim: _Simulator | None = None
         self._symbol: str = cfg.symbol
-        self._spec: Optional[SymbolSpec] = None
+        self._spec: SymbolSpec | None = None
+        self._specs: dict[str, SymbolSpec] = {}  # per-symbol spec cache
         self._connected = False
         if self.simulate:
             self._sim = _Simulator(cfg.symbol)
@@ -176,12 +197,13 @@ class MT5Executor:
     def _connect_sync(self) -> bool:
         if self.simulate:
             self._spec = self._sim.symbol_spec()  # type: ignore[union-attr]
+            self._specs[self._symbol] = self._spec
             self._connected = True
             mode = "DRY-RUN" if self.dry_run else "SIM (MT5 package missing)"
             log.warning("MT5 executor running in %s mode — no real orders.", mode)
             return True
 
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if self.cfg.terminal_path:
             kwargs["path"] = self.cfg.terminal_path
         if self.cfg.login and self.cfg.password and self.cfg.server:
@@ -200,6 +222,8 @@ class MT5Executor:
             return False
         mt5.symbol_select(self._symbol, True)  # type: ignore[union-attr]
         self._spec = self._load_symbol_spec(self._symbol)
+        if self._spec:
+            self._specs[self._symbol] = self._spec
         self._connected = self._spec is not None
         if self._connected:
             info = mt5.account_info()  # type: ignore[union-attr]
@@ -223,7 +247,7 @@ class MT5Executor:
                 return n
         return self.cfg.symbol
 
-    def _load_symbol_spec(self, name: str) -> Optional[SymbolSpec]:
+    def _load_symbol_spec(self, name: str) -> SymbolSpec | None:
         si = mt5.symbol_info(name)  # type: ignore[union-attr]
         if si is None:
             return None
@@ -249,12 +273,40 @@ class MT5Executor:
 
     # ----- account / market data ------------------------------------------
     @property
-    def spec(self) -> Optional[SymbolSpec]:
+    def spec(self) -> SymbolSpec | None:
         return self._spec
 
     @property
     def symbol(self) -> str:
         return self._symbol
+
+    def spec_for(self, symbol: str | None = None) -> SymbolSpec | None:
+        """Cached spec lookup (primary symbol resolved at connect time)."""
+
+        sym = (symbol or self._symbol).upper()
+        if self.simulate:
+            return self._sim.symbol_spec(sym)  # type: ignore[union-attr]
+        return self._specs.get(sym, self._spec)
+
+    async def ensure_symbol(self, symbol: str) -> SymbolSpec | None:
+        """Resolve, select and cache a (non-primary) symbol's spec."""
+
+        return await self._run(self._ensure_symbol_sync, symbol)
+
+    def _ensure_symbol_sync(self, symbol: str) -> SymbolSpec | None:
+        sym = (symbol or self._symbol).upper()
+        if self.simulate:
+            return self._sim.symbol_spec(sym)  # type: ignore[union-attr]
+        if sym in self._specs:
+            return self._specs[sym]
+        try:
+            mt5.symbol_select(sym, True)  # type: ignore[union-attr]
+            spec = self._load_symbol_spec(sym)
+            if spec:
+                self._specs[sym] = spec
+            return spec
+        except Exception:  # noqa: BLE001
+            return None
 
     async def account_balance(self) -> float:
         def _bal() -> float:
@@ -272,11 +324,13 @@ class MT5Executor:
             return float(info.equity) if info else 0.0
         return await self._run(_eq)
 
-    async def current_price(self) -> Dict[str, float]:
-        def _tick() -> Dict[str, float]:
+    async def current_price(self, symbol: str | None = None) -> dict[str, float]:
+        sym = (symbol or self._symbol)
+
+        def _tick() -> dict[str, float]:
             if self.simulate:
-                return self._sim.tick()  # type: ignore[union-attr]
-            t = mt5.symbol_info_tick(self._symbol)  # type: ignore[union-attr]
+                return self._sim.tick(sym)  # type: ignore[union-attr]
+            t = mt5.symbol_info_tick(sym)  # type: ignore[union-attr]
             return {"bid": t.bid, "ask": t.ask} if t else {"bid": 0.0, "ask": 0.0}
         return await self._run(_tick)
 
@@ -286,36 +340,39 @@ class MT5Executor:
         *,
         direction: str,
         volume: float,
-        price: Optional[float],
-        sl: Optional[float],
-        tp: Optional[float],
+        price: float | None,
+        sl: float | None,
+        tp: float | None,
         order_kind: str,
         magic: int,
         comment: str,
+        symbol: str | None = None,
     ) -> OrderResult:
         return await self._run(
             self._open_sync, direction, volume, price, sl, tp, order_kind,
-            magic, comment,
+            magic, comment, (symbol or self._symbol),
         )
 
     def _open_sync(self, direction, volume, price, sl, tp, order_kind, magic,
-                   comment) -> OrderResult:
+                   comment, symbol=None) -> OrderResult:
+        symbol = symbol or self._symbol
         is_buy = direction.upper() == "BUY"
         if self.simulate:
             if price:
-                self._sim.set_reference_price(price)  # type: ignore[union-attr]
-            tick = self._sim.tick()  # type: ignore[union-attr]
+                self._sim.set_reference_price(price, symbol)  # type: ignore[union-attr]
+            tick = self._sim.tick(symbol)  # type: ignore[union-attr]
             fill = price or (tick["ask"] if is_buy else tick["bid"])
             res = self._sim.open(  # type: ignore[union-attr]
                 type_=0 if is_buy else 1, volume=volume, price=fill,
                 sl=sl or 0.0, tp=tp or 0.0, magic=magic, comment=comment,
+                symbol=symbol,
             )
-            audit("mt5_open", sim=True, direction=direction, volume=volume,
-                  price=fill, sl=sl, tp=tp, magic=magic, comment=comment,
-                  ticket=res.ticket)
+            audit("mt5_open", sim=True, symbol=symbol, direction=direction,
+                  volume=volume, price=fill, sl=sl, tp=tp, magic=magic,
+                  comment=comment, ticket=res.ticket)
             return res
 
-        tick = mt5.symbol_info_tick(self._symbol)  # type: ignore[union-attr]
+        tick = mt5.symbol_info_tick(symbol)  # type: ignore[union-attr]
         if order_kind.upper() == "MARKET" or price is None:
             order_type = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL  # type: ignore
             fill = tick.ask if is_buy else tick.bid
@@ -331,9 +388,9 @@ class MT5Executor:
             fill = price
             action = mt5.TRADE_ACTION_PENDING  # type: ignore
 
-        request: Dict[str, Any] = {
+        request: dict[str, Any] = {
             "action": action,
-            "symbol": self._symbol,
+            "symbol": symbol,
             "volume": float(volume),
             "type": order_type,
             "price": float(fill),
@@ -374,8 +431,8 @@ class MT5Executor:
             pass
         return mt5.ORDER_FILLING_IOC  # type: ignore
 
-    async def modify_position(self, ticket: int, sl: Optional[float] = None,
-                              tp: Optional[float] = None) -> OrderResult:
+    async def modify_position(self, ticket: int, sl: float | None = None,
+                              tp: float | None = None) -> OrderResult:
         return await self._run(self._modify_sync, ticket, sl, tp)
 
     def _modify_sync(self, ticket: int, sl, tp) -> OrderResult:
@@ -403,8 +460,8 @@ class MT5Executor:
         return OrderResult(ok=ok, ticket=ticket, comment=str(getattr(result, "comment", "")),
                            raw=result)
 
-    async def close_position(self, ticket: int, volume: Optional[float] = None,
-                             price: Optional[float] = None) -> OrderResult:
+    async def close_position(self, ticket: int, volume: float | None = None,
+                             price: float | None = None) -> OrderResult:
         return await self._run(self._close_sync, ticket, volume, price)
 
     def _close_sync(self, ticket: int, volume, price=None) -> OrderResult:
@@ -440,7 +497,7 @@ class MT5Executor:
         return OrderResult(ok=ok, ticket=ticket, volume=close_vol, profit=profit,
                            comment=str(getattr(result, "comment", "")), raw=result)
 
-    def _deal_profit(self, position_ticket: int) -> Optional[float]:
+    def _deal_profit(self, position_ticket: int) -> float | None:
         """Sum realized profit of deals belonging to a position (live MT5)."""
 
         try:
@@ -454,7 +511,7 @@ class MT5Executor:
         except Exception:  # noqa: BLE001
             return None
 
-    async def position_profit(self, ticket: int) -> Optional[float]:
+    async def position_profit(self, ticket: int) -> float | None:
         """Realized profit for a position already closed at the broker."""
 
         return await self._run(self._deal_profit, ticket)
@@ -463,34 +520,35 @@ class MT5Executor:
         positions = mt5.positions_get(ticket=ticket)  # type: ignore[union-attr]
         return positions[0] if positions else None
 
-    async def positions_by_magic(self, magic: int) -> List[Dict[str, Any]]:
+    async def positions_by_magic(self, magic: int) -> list[dict[str, Any]]:
         return await self._run(self._positions_by_magic_sync, magic)
 
-    def _positions_by_magic_sync(self, magic: int) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def _positions_by_magic_sync(self, magic: int) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         if self.simulate:
             for p in self._sim.positions.values():  # type: ignore[union-attr]
                 if p.magic == magic:
                     out.append(self._sim_pos_dict(p))
             return out
-        positions = mt5.positions_get(symbol=self._symbol)  # type: ignore[union-attr]
+        positions = mt5.positions_get()  # type: ignore[union-attr]  # all symbols
         for p in positions or []:
             if p.magic == magic:
                 out.append({
                     "ticket": p.ticket, "volume": p.volume, "type": p.type,
                     "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
                     "magic": p.magic, "comment": p.comment, "profit": p.profit,
+                    "symbol": p.symbol,
                 })
         return out
 
-    async def all_positions(self) -> List[Dict[str, Any]]:
+    async def all_positions(self) -> list[dict[str, Any]]:
         return await self._run(self._all_positions_sync)
 
-    def _all_positions_sync(self) -> List[Dict[str, Any]]:
+    def _all_positions_sync(self) -> list[dict[str, Any]]:
         if self.simulate:
             return [self._sim_pos_dict(p)
                     for p in self._sim.positions.values()]  # type: ignore[union-attr]
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         positions = mt5.positions_get()  # type: ignore[union-attr]
         for p in positions or []:
             out.append({
@@ -502,14 +560,14 @@ class MT5Executor:
         return out
 
     @staticmethod
-    def _sim_pos_dict(p: _SimPosition) -> Dict[str, Any]:
+    def _sim_pos_dict(p: _SimPosition) -> dict[str, Any]:
         return {"ticket": p.ticket, "volume": p.volume, "type": p.type,
                 "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
                 "magic": p.magic, "comment": p.comment, "profit": p.profit}
 
     # ----- helpers ---------------------------------------------------------
-    def normalize_volume(self, volume: float) -> float:
-        spec = self._spec
+    def normalize_volume(self, volume: float, symbol: str | None = None) -> float:
+        spec = self.spec_for(symbol) if symbol else self._spec
         if not spec:
             return round(volume, 2)
         step = spec.volume_step or 0.01

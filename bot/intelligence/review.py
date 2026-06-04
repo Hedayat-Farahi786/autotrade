@@ -15,7 +15,6 @@ import os
 import re
 import threading
 import time
-from typing import List, Optional
 
 from ..logger import audit, get_logger
 from ..models import Intent, IntentType
@@ -41,9 +40,9 @@ class ReviewLogger:
     def consider(
         self,
         text: str,
-        intents: List[Intent],
-        message_id: Optional[int],
-        ai_intents: Optional[List[Intent]] = None,
+        intents: list[Intent],
+        message_id: int | None,
+        ai_intents: list[Intent] | None = None,
     ) -> bool:
         """Queue the message if the parse looks uncertain. Returns True if queued."""
 
@@ -66,8 +65,8 @@ class ReviewLogger:
         log.info("Queued for review (%s): %.60s", reason, text.replace("\n", " "))
         return True
 
-    def _uncertainty_reason(self, text: str, intents: List[Intent],
-                            ai_intents: Optional[List[Intent]]) -> Optional[str]:
+    def _uncertainty_reason(self, text: str, intents: list[Intent],
+                            ai_intents: list[Intent] | None) -> str | None:
         all_noise = bool(intents) and all(i.type is IntentType.NOISE for i in intents)
         looks_trade = bool(_TRADE_HINT.search(text or ""))
 

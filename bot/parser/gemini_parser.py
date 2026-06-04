@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import json
 import time
-from typing import List, Optional
 
 from ..logger import audit, get_logger
-from ..models import Intent, IntentType
+from ..models import Intent
 from .intent_builder import INTENTS_SCHEMA, SYSTEM_PROMPT, payload_to_intents
 
 log = get_logger("gemini_parser")
@@ -36,7 +35,7 @@ class GeminiParser:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "gemini-2.5-flash",
         default_symbol: str = "XAUUSD",
         max_tokens: int = 800,
@@ -62,7 +61,7 @@ class GeminiParser:
             response_schema=INTENTS_SCHEMA,
         )
 
-    async def parse(self, text: Optional[str], message_id: Optional[int] = None) -> List[Intent]:
+    async def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         if not text or not text.strip():
             return []
         text = text.strip()
@@ -94,7 +93,7 @@ class GeminiParser:
         return intents
 
     @staticmethod
-    def _extract_json(resp) -> Optional[dict]:
+    def _extract_json(resp) -> dict | None:
         raw = getattr(resp, "text", None)
         if not raw:
             # Fall back to walking candidate parts.

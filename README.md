@@ -95,6 +95,12 @@ are interpreted via `PARSER_MODE`:
   typos and reordering, at the cost of a network round-trip per message.
 - **`regex`** — deterministic, zero network latency, no API key required.
 
+**Multi-symbol:** the parser detects the instrument from the message (Gold/XAUUSD
+by default, plus EURUSD, GBPUSD, USDJPY, XAGUSD, US30, NAS100, US500, BTCUSD) and
+tags each signal. Set `SYMBOLS` to the comma-separated list you allow; entries on
+other instruments are skipped. Price plausibility is symbol-aware (FX decimals vs.
+gold). Extend the table in `bot/parser/patterns.py`.
+
 **AI provider** (`AI_PROVIDER`): `gemini` *(default — Gemini Flash is typically
 the fastest)* or `anthropic` (Claude Haiku). The LLM returns a strict,
 schema-validated list of intents, so its output is constrained to the exact
@@ -168,6 +174,21 @@ Scanned 142 message(s); 17 actionable.
 ```
 This is the recommended way to tune `PARSER_MODE`/patterns against the channel's
 real wording before going live.
+
+### Preflight check
+```bash
+python main.py --doctor      # validates config, MT5, parser & API keys
+```
+
+### Backtest on history
+Replay real messages against price history to validate the edge (same parsing
+and management logic as live; results in risk units / R-multiples):
+```bash
+python main.py --backtest messages.jsonl prices.csv
+```
+`messages.jsonl` is one `{"ts": <unix>, "text": "..."}` per line (or a Telegram
+Desktop export `.json`); `prices.csv` has columns `ts,high,low,close` (or
+`ts,price`). Prints win rate, profit factor, expectancy, avg R and max drawdown.
 
 ---
 

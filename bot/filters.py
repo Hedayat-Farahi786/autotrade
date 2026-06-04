@@ -7,7 +7,6 @@ quote); sessions and blackout windows are evaluated here.
 from __future__ import annotations
 
 import datetime as dt
-from typing import List, Optional, Tuple
 
 from .config import FiltersConfig
 from .logger import get_logger
@@ -15,7 +14,7 @@ from .logger import get_logger
 log = get_logger("filters")
 
 
-def _parse_hhmm(s: str) -> Optional[int]:
+def _parse_hhmm(s: str) -> int | None:
     try:
         h, m = s.strip().split(":")
         return int(h) * 60 + int(m)
@@ -29,7 +28,7 @@ class TradingFilters:
         self._sessions = self._parse_sessions(cfg.sessions)
         self._blackout = self._parse_blackout(cfg.news_blackout)
 
-    def _parse_sessions(self, raw: List[str]) -> List[Tuple[int, int]]:
+    def _parse_sessions(self, raw: list[str]) -> list[tuple[int, int]]:
         out = []
         for item in raw:
             try:
@@ -41,7 +40,7 @@ class TradingFilters:
                 log.warning("Ignoring malformed session window: %s", item)
         return out
 
-    def _parse_blackout(self, raw: List[str]) -> List[Tuple[dt.datetime, dt.datetime]]:
+    def _parse_blackout(self, raw: list[str]) -> list[tuple[dt.datetime, dt.datetime]]:
         out = []
         for item in raw:
             try:
@@ -53,7 +52,7 @@ class TradingFilters:
                 log.warning("Ignoring malformed blackout window: %s", item)
         return out
 
-    def allowed(self, now: Optional[dt.datetime] = None) -> Tuple[bool, str]:
+    def allowed(self, now: dt.datetime | None = None) -> tuple[bool, str]:
         """Is trading allowed at ``now`` (UTC)?  Returns (allowed, reason)."""
 
         if not self.cfg.enabled:

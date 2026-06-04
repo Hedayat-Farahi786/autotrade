@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 try:
     from dotenv import load_dotenv
@@ -18,7 +17,7 @@ except Exception:  # pragma: no cover - dotenv is optional at runtime
     pass
 
 
-def _get(name: str, default: Optional[str] = None) -> Optional[str]:
+def _get(name: str, default: str | None = None) -> str | None:
     val = os.getenv(name, default)
     if val is not None:
         val = val.strip()
@@ -60,19 +59,19 @@ class TelegramConfig:
     # Channel may be a numeric id (-100...), a @username, or an exact title.
     channel: str = ""
     # Optional: only one of phone (user account) is needed for Telethon login.
-    phone: Optional[str] = None
+    phone: str | None = None
 
 
 @dataclass
 class MT5Config:
-    login: Optional[int] = None
-    password: Optional[str] = None
-    server: Optional[str] = None
+    login: int | None = None
+    password: str | None = None
+    server: str | None = None
     # Path to terminal64.exe; optional if MT5 is already running/installed.
-    terminal_path: Optional[str] = None
+    terminal_path: str | None = None
     symbol: str = "XAUUSD"
     # Broker symbol suffix handling, e.g. "XAUUSD.r" / "XAUUSDm".
-    symbol_overrides: List[str] = field(default_factory=list)
+    symbol_overrides: list[str] = field(default_factory=list)
     deviation_points: int = 30  # max slippage in points for market orders
     magic_base: int = 990000    # magic numbers are derived from this base
 
@@ -150,14 +149,14 @@ class ControlConfig:
     alerts_enabled: bool = True
     telegram_control_enabled: bool = True
     # Where to send alerts / read commands. Empty → your own Saved Messages.
-    control_chat: Optional[str] = None
+    control_chat: str | None = None
     daily_summary: bool = True
 
 
 @dataclass
 class DashboardConfig:
     # Optional bearer token / password protecting the dashboard + control API.
-    token: Optional[str] = None
+    token: str | None = None
 
 
 @dataclass
@@ -166,9 +165,9 @@ class ParserConfig:
     mode: str = "hybrid"
     # gemini | anthropic
     provider: str = "gemini"
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
-    anthropic_api_key: Optional[str] = None
+    anthropic_api_key: str | None = None
     anthropic_model: str = "claude-haiku-4-5-20251001"
 
 
@@ -197,7 +196,7 @@ class BotConfig:
     emergency_stop_file: str = ".EMERGENCY_STOP"
 
 
-_cached: Optional[BotConfig] = None
+_cached: BotConfig | None = None
 
 
 def get_config(require_secrets: bool = True) -> BotConfig:

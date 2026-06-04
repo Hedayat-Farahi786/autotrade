@@ -12,7 +12,6 @@ from bot.state.manager import TrackedPosition
 from tests.test_pipeline import _make
 
 
-
 # --------------------------------------------------------------------------- #
 #  Condition filters (pure)
 # --------------------------------------------------------------------------- #
@@ -70,8 +69,7 @@ async def test_trailing_monitor_pass(tmp_path):
     parser = SignalParser()
     await trader.handle(parser.parse(
         "Gold buy now 4470 - 4470\nSL: 4464\nTP: 4472", 1))
-    sig = state.latest_active()
-    pos = sig.open_positions()[0]
+    assert state.latest_active() is not None
     # Drive the simulated price well into profit, then run a monitor pass.
     ex._sim.set_reference_price(4490.0)
     mon = PositionMonitor(ExecutionConfig(trailing_enabled=True, trail_start_pips=100,

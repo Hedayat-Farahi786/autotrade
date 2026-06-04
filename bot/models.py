@@ -8,7 +8,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
 
 
 class Direction(str, Enum):
@@ -44,9 +43,9 @@ class TakeProfit:
     that case ``min_pips`` carries the floor distance the channel hinted at.
     """
 
-    price: Optional[float] = None
-    min_pips: Optional[float] = None
-    label: Optional[str] = None  # e.g. "TP1"
+    price: float | None = None
+    min_pips: float | None = None
+    label: str | None = None  # e.g. "TP1"
 
     @property
     def is_open(self) -> bool:
@@ -60,13 +59,13 @@ class EntrySignal:
     direction: Direction
     symbol: str = "XAUUSD"
     order_kind: OrderKind = OrderKind.MARKET
-    entry_low: Optional[float] = None
-    entry_high: Optional[float] = None
-    sl: Optional[float] = None
-    take_profits: List[TakeProfit] = field(default_factory=list)
+    entry_low: float | None = None
+    entry_high: float | None = None
+    sl: float | None = None
+    take_profits: list[TakeProfit] = field(default_factory=list)
 
     @property
-    def entry_mid(self) -> Optional[float]:
+    def entry_mid(self) -> float | None:
         lo, hi = self.entry_low, self.entry_high
         if lo is None and hi is None:
             return None
@@ -77,7 +76,7 @@ class EntrySignal:
         return round((lo + hi) / 2.0, 3)
 
     @property
-    def concrete_tps(self) -> List[TakeProfit]:
+    def concrete_tps(self) -> list[TakeProfit]:
         return [tp for tp in self.take_profits if not tp.is_open]
 
 
@@ -91,23 +90,23 @@ class Intent:
 
     type: IntentType
     raw_text: str = ""
-    message_id: Optional[int] = None
+    message_id: int | None = None
     confidence: float = 1.0
 
     # ENTRY
-    entry: Optional[EntrySignal] = None
+    entry: EntrySignal | None = None
 
     # MODIFY_SL
-    new_sl: Optional[float] = None
+    new_sl: float | None = None
 
     # PARTIAL_CLOSE
     close_fraction: float = 0.5  # default "take some profits" → halve exposure
 
     # TP_HIT
-    tp_index: Optional[int] = None  # 1-based TP number referenced in the text
+    tp_index: int | None = None  # 1-based TP number referenced in the text
 
     # debugging / explainability
-    matched_rule: Optional[str] = None
+    matched_rule: str | None = None
     created_at: float = field(default_factory=time.time)
 
     def __repr__(self) -> str:  # concise, log-friendly

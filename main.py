@@ -56,6 +56,9 @@ def main() -> None:
                     help="With --backfill, also list ignored/noise messages.")
     ap.add_argument("--doctor", action="store_true",
                     help="Run preflight checks (config, MT5, parser, keys) and exit.")
+    ap.add_argument("--backtest", nargs=2, metavar=("MESSAGES", "PRICES"),
+                    help="Backtest: replay a messages file (JSONL/Telegram export) "
+                         "against a prices CSV and print performance.")
     ap.add_argument("--web", action="store_true",
                     help="Launch the monitoring dashboard (FastAPI).")
     ap.add_argument("--demo", action="store_true",
@@ -78,6 +81,12 @@ def main() -> None:
         from bot.doctor import run as run_doctor
 
         sys.exit(run_doctor())
+
+    if args.backtest:
+        from bot.backtest import run_cli
+
+        run_cli(args.backtest[0], args.backtest[1])
+        return
 
     if args.web:
         if args.demo:

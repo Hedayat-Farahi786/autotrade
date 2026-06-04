@@ -18,7 +18,6 @@ All strategies expose ``async parse(text, message_id) -> List[Intent]``.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 from ..logger import get_logger
 from ..models import Intent, IntentType
@@ -41,7 +40,7 @@ class RegexParserAsync:
     def __init__(self, default_symbol: str = "XAUUSD") -> None:
         self._p = SignalParser(default_symbol=default_symbol)
 
-    async def parse(self, text: Optional[str], message_id: Optional[int] = None) -> List[Intent]:
+    async def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         return self._p.parse(text, message_id)
 
 
@@ -51,7 +50,7 @@ class HybridParser:
         self._ai = ai_parser
         self.min_confidence = min_confidence
 
-    async def parse(self, text: Optional[str], message_id: Optional[int] = None) -> List[Intent]:
+    async def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         intents = await self._regex.parse(text, message_id)
         if self._is_confident(intents):
             return intents
@@ -62,7 +61,7 @@ class HybridParser:
                 return ai_intents
         return intents
 
-    def _is_confident(self, intents: List[Intent]) -> bool:
+    def _is_confident(self, intents: list[Intent]) -> bool:
         if not intents:
             return False
         if self._all_noise(intents):
@@ -70,7 +69,7 @@ class HybridParser:
         return all(i.confidence >= self.min_confidence for i in intents)
 
     @staticmethod
-    def _all_noise(intents: List[Intent]) -> bool:
+    def _all_noise(intents: list[Intent]) -> bool:
         return all(i.type is IntentType.NOISE for i in intents)
 
 
@@ -97,8 +96,8 @@ def build_parser(
     *,
     provider: str = "gemini",
     default_symbol: str = "XAUUSD",
-    anthropic_api_key: Optional[str] = None,
-    gemini_api_key: Optional[str] = None,
+    anthropic_api_key: str | None = None,
+    gemini_api_key: str | None = None,
     anthropic_model: str = "claude-haiku-4-5-20251001",
     gemini_model: str = "gemini-2.5-flash",
 ):

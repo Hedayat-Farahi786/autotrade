@@ -8,7 +8,7 @@ guard the run loop so transient disconnects never kill the process.
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Optional, Union
+from collections.abc import Awaitable, Callable
 
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
@@ -143,7 +143,7 @@ class TelegramListener:
     def client(self) -> TelegramClient:
         return self._client
 
-    async def resolve(self, target: Optional[str]):
+    async def resolve(self, target: str | None):
         """Resolve a chat for alerts/commands; ``None`` → your Saved Messages."""
 
         if not target:

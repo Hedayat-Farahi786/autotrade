@@ -15,8 +15,6 @@ unit-testable (see ``tests/test_parser.py``).
 """
 from __future__ import annotations
 
-from typing import List, Optional
-
 from ..logger import get_logger
 from ..models import (
     Direction,
@@ -31,7 +29,7 @@ from . import patterns as P
 log = get_logger("parser")
 
 
-def _to_float(token: Optional[str]) -> Optional[float]:
+def _to_float(token: str | None) -> float | None:
     if token is None:
         return None
     token = token.replace(",", "")
@@ -48,7 +46,7 @@ class SignalParser:
         self.default_symbol = default_symbol
 
     # ------------------------------------------------------------------ API
-    def parse(self, text: Optional[str], message_id: Optional[int] = None) -> List[Intent]:
+    def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         if not text or not text.strip():
             return []
         text = text.strip()
@@ -67,7 +65,7 @@ class SignalParser:
             return [intent]
 
         # 2) Otherwise collect every management instruction present.
-        intents: List[Intent] = []
+        intents: list[Intent] = []
         applies_all = bool(P.RE_ALL_ENTRIES.search(text))
 
         # TP-hit is informational housekeeping → emit first.
@@ -156,7 +154,7 @@ class SignalParser:
         return intents
 
     # -------------------------------------------------------------- entries
-    def _try_entry(self, text: str) -> Optional[EntrySignal]:
+    def _try_entry(self, text: str) -> EntrySignal | None:
         m = P.RE_ENTRY.search(text)
         if not m:
             return None
@@ -167,12 +165,16 @@ class SignalParser:
             else Direction.SELL
         )
 
+        # Detect the instrument first so price plausibility is symbol-aware.
+        symbol = P.detect_symbol(text, self.default_symbol)
+        lo_b, hi_b = P.price_range(symbol)
+
         p1 = _to_float(m.group("p1"))
         p2 = _to_float(m.group("p2"))
         if p1 is None:
             return None
-        # Reject implausible XAUUSD prices to avoid parsing random numbers.
-        if not self._plausible_price(p1) or (p2 is not None and not self._plausible_price(p2)):
+        # Reject prices implausible for this instrument (avoids random numbers).
+        if not (lo_b <= p1 <= hi_b) or (p2 is not None and not (lo_b <= p2 <= hi_b)):
             return None
 
         if p2 is not None:
@@ -181,12 +183,12 @@ class SignalParser:
             entry_low = entry_high = p1
 
         order_kind = self._order_kind(text, m)
-        sl = self._extract_sl(text)
-        tps = self._extract_tps(text)
+        sl = self._extract_sl(text, symbol)
+        tps = self._extract_tps(text, symbol)
 
         return EntrySignal(
             direction=direction,
-            symbol=self.default_symbol,
+            symbol=symbol,
             order_kind=order_kind,
             entry_low=entry_low,
             entry_high=entry_high,
@@ -211,21 +213,23 @@ class SignalParser:
             return OrderKind.STOP
         return OrderKind.MARKET
 
-    def _extract_sl(self, text: str) -> Optional[float]:
+    def _extract_sl(self, text: str, symbol: str = "XAUUSD") -> float | None:
+        lo_b, hi_b = P.price_range(symbol)
         m = P.RE_SL.search(text)
         if m:
             sl = _to_float(m.group("sl"))
-            if sl is not None and self._plausible_price(sl):
+            if sl is not None and lo_b <= sl <= hi_b:
                 return sl
         return None
 
-    def _extract_tps(self, text: str) -> List[TakeProfit]:
-        tps: List[TakeProfit] = []
+    def _extract_tps(self, text: str, symbol: str = "XAUUSD") -> list[TakeProfit]:
+        tps: list[TakeProfit] = []
         seen: set = set()
+        lo_b, hi_b = P.price_range(symbol)
 
         for m in P.RE_TP.finditer(text):
             price = _to_float(m.group("price"))
-            if price is None or not self._plausible_price(price):
+            if price is None or not (lo_b <= price <= hi_b):
                 continue
             if price in seen:
                 continue
@@ -259,16 +263,19 @@ class SignalParser:
         return round(min(score, 1.0), 2)
 
     # ---------------------------------------------------------- management
-    def _sl_modify(self, text: str) -> Optional[float]:
+    def _sl_modify(self, text: str) -> float | None:
+        # Management messages rarely name the symbol, so accept any plausible
+        # tradable price (the explicit "SL to X" wording keeps this safe).
+        lo_b, hi_b = P.DEFAULT_PRICE_RANGE
         for rx in (P.RE_SL_MODIFY, P.RE_SL_TO):
             m = rx.search(text)
             if m:
                 sl = _to_float(m.group("sl"))
-                if sl is not None and self._plausible_price(sl):
+                if sl is not None and lo_b <= sl <= hi_b:
                     return sl
         return None
 
-    def _tp_hit_index(self, text: str) -> Optional[int]:
+    def _tp_hit_index(self, text: str) -> int | None:
         for rx in (P.RE_TP_HIT, P.RE_TP_HIT_REV):
             m = rx.search(text)
             if m:
