@@ -1,0 +1,239 @@
+# GTMO VIP — XAUUSD Telegram → MT5 Auto-Trading Bot
+
+A high-performance, production-grade automated trading bot that listens 24/7 to
+the **GTMO VIP** Telegram channel, intelligently parses Gold (XAUUSD) signals
+and follow-up management instructions, and executes them on **MetaTrader 5**
+with minimal latency.
+
+> ⚠️ **Trading risk.** This software places real orders when `DRY_RUN=false`.
+> Trading leveraged Gold is extremely risky. Use at your own risk, start in
+> dry-run, test on a demo account, and never risk money you can't afford to
+> lose. Copying signals from a third-party channel is **not** financial advice.
+
+---
+
+## ✨ What it does
+
+It reads messages like the ones GTMO VIP posts and turns them into actions:
+
+| Channel message | Parsed intent | MT5 action |
+|---|---|---|
+| `Gold buy now 4470 - 4467` / `SL: 4464` / `TP: 4472 … TP: open (100+ pips)` | **ENTRY** (BUY, zone, SL, 4 TPs + runner) | Open one position per TP, shared SL, risk-sized |
+| `Adjust SL to 4462` | **MODIFY_SL** | Move SL on every open leg |
+| `Breakeven set for zero risk on all entries` | **BREAKEVEN** | Move SL → entry on all signals |
+| `Take some profits` | **PARTIAL_CLOSE** | Close 50% of each leg |
+| `TP2 smasssheddd take some more profits and set breakeven now` | **TP_HIT + PARTIAL_CLOSE + BREAKEVEN** | Reconcile, partial close, breakeven |
+| `TP1 has been touched` / `TP2 checkkk 70+ pips` | **TP_HIT** | Reconcile state with broker |
+| Motivation / charts / disclaimers | **NOISE** | Ignored |
+
+---
+
+## 🏗️ Architecture
+
+```
+Telegram (Telethon, asyncio)
+        │  raw message
+        ▼
+   Parser  ──► regex (instant)  ──┐
+   (mode)     AI: Gemini/Claude ──┤──► [Intent, Intent, …]
+              hybrid (regex→AI)  ──┘
+        │
+        ▼
+     Trader  ── risk sizing & validation ──► State (per-signal magic #)
+        │
+        ▼
+   MT5 Executor  ── dedicated worker thread (terminal isn't thread-safe)
+        │
+        ▼
+   MetaTrader 5  (or built-in Simulator in dry-run / on Linux)
+```
+
+Every layer is asyncio-native. The only blocking dependency — the MT5 terminal —
+is isolated behind a single dedicated worker thread, so the Telegram listener is
+never stalled.
+
+```
+bot/
+├── app.py              # orchestrator (wires everything, lifecycle, signals)
+├── config.py           # env-driven, validated configuration
+├── logger.py           # rotating logs + structured JSONL audit trail
+├── models.py           # Intent / EntrySignal / TakeProfit dataclasses
+├── trader.py           # Intent → MT5 action dispatcher
+├── parser/
+│   ├── patterns.py     # regex building blocks (edit here to add phrasings)
+│   ├── signal_parser.py# fast deterministic parser (compound-aware)
+│   ├── ai_parser.py    # Claude (Anthropic) parser via tool-use
+│   ├── gemini_parser.py# Gemini parser via JSON mode (fastest)
+│   ├── intent_builder.py # shared LLM-JSON → Intent mapping + system prompt
+│   └── hybrid.py       # build_parser() factory + hybrid strategy
+├── telegram/listener.py# Telethon listener with robust auto-reconnect
+├── mt5/executor.py     # MT5 execution + in-memory simulator
+├── risk/manager.py     # sizing, daily-loss halt, validation
+└── state/manager.py    # active signals/positions, JSON persistence
+main.py                 # entry point + offline `--parse` tool
+tests/                  # parser + end-to-end pipeline tests
+```
+
+---
+
+## 🧠 Parsing: AI, regex, or hybrid
+
+Because the channel doesn't guarantee a fixed format, you can choose how messages
+are interpreted via `PARSER_MODE`:
+
+- **`hybrid`** *(default, recommended)* — regex runs first (sub-millisecond) and
+  handles the well-known GTMO formats instantly; the LLM is consulted **only**
+  when regex is unsure (returned pure noise / low confidence while the text still
+  looks trade-related). Best balance of **speed** and **robustness**.
+- **`ai`** — every message goes to the LLM. Most robust to brand-new phrasings,
+  typos and reordering, at the cost of a network round-trip per message.
+- **`regex`** — deterministic, zero network latency, no API key required.
+
+**AI provider** (`AI_PROVIDER`): `gemini` *(default — Gemini Flash is typically
+the fastest)* or `anthropic` (Claude Haiku). The LLM returns a strict,
+schema-validated list of intents, so its output is constrained to the exact
+structure the executor understands.
+
+> 💡 **On speed:** pure `ai` mode adds the model's latency (a few hundred ms with
+> Gemini Flash) to *every* message. For the fastest possible execution on the
+> common signal formats while still covering the long tail, keep `hybrid`.
+
+Add new phrasings by editing `bot/parser/patterns.py` (regex) — no control-flow
+changes needed — or simply rely on the AI parser to generalise.
+
+---
+
+## 🚀 Setup
+
+### 1. Telegram API credentials
+Create an app at <https://my.telegram.org> → *API development tools* to get your
+`api_id` and `api_hash`. The bot logs in as **your user account** (so it can read
+the channel you're a member of).
+
+### 2. Configure
+```bash
+cp .env.example .env
+# edit .env: Telegram creds + channel, AI key, MT5 login, risk settings
+```
+Set `TELEGRAM_CHANNEL` to the numeric id (`-100…`), `@username`, or the exact
+title `GTMO VIP`.
+
+### 3. Install
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+- `MetaTrader5` installs only on **Windows** (platform marker). On Linux/macOS or
+  in dry-run, the bot uses a built-in **simulator** automatically.
+- The AI SDKs (`google-genai`, `anthropic`) are optional — only the one matching
+  `AI_PROVIDER` is needed. If missing, the bot falls back to regex parsing.
+
+### 4. First-time Telegram login
+```bash
+python main.py
+```
+You'll be prompted for the phone code (and 2FA password if enabled). A
+`*.session` file is created so subsequent runs log in automatically.
+
+### 5. Test parsing offline (no MT5/Telegram needed)
+```bash
+python main.py --parse "Gold buy now 4470 - 4467\nSL: 4464\nTP: 4472\nTP: open (100+ pips)"
+python main.py --parse "TP2 smashed take some more profits and set breakeven now"
+```
+
+---
+
+## 🛡️ Risk management
+
+- **`RISK_PER_SIGNAL`** — fraction of equity risked across the *whole* signal
+  (split evenly across the positions opened, one per take-profit). Lot sizes are
+  derived from the SL distance using the symbol's tick value.
+- **`MAX_DAILY_LOSS`** — once realised losses exceed this fraction of start-of-day
+  balance, **new entries are halted** for the day.
+- **`MAX_OPEN_SIGNALS`**, **`MAX_LOT`/`MIN_LOT`** — hard caps.
+- **Validation** — entries are rejected if the SL is on the wrong side of the
+  entry, the price is implausible, or limits are exceeded.
+- **Emergency stop** — create the file named by `EMERGENCY_STOP_FILE`
+  (default `.EMERGENCY_STOP`) and **no new trades** are placed:
+  ```bash
+  touch .EMERGENCY_STOP   # halt    │    rm .EMERGENCY_STOP   # resume
+  ```
+
+---
+
+## 📊 Logging & audit
+
+- `logs/bot.log` — rotating human-readable log (everything at DEBUG to file).
+- `logs/audit.jsonl` — one JSON line per **received message**, **parsed intent**
+  and **MT5 action** (including latency and, for AI, token usage). Ideal for
+  post-mortems and reconciling against your broker.
+
+---
+
+## 🐳 Docker
+
+```bash
+docker compose up --build -d        # build & run detached
+docker compose logs -f              # follow logs
+```
+The container runs the listener + parser + **simulator** (dry-run) on Linux.
+Telethon session, `logs/` and `state/` are persisted via volumes.
+
+**Live trading needs MT5**, which is Windows-only. Options:
+1. Run the bot directly on a **Windows VPS** with the MT5 terminal installed
+   (recommended for lowest latency), or
+2. Run MT5 under **Wine** with a bridge, or run the terminal on Windows and the
+   bot elsewhere pointing at it.
+
+---
+
+## 🔢 How an entry is executed
+
+For `Gold buy now 4470 - 4467 / SL 4464 / TP 4472,4474,4476,4478 / TP open`:
+
+1. A unique **magic number** is assigned to the signal (`MT5_MAGIC_BASE + id`).
+2. With `ONE_POSITION_PER_TP=true`, **5 positions** are opened (4 fixed TPs + 1
+   open runner), each tagged `GTMO#<id>-TP<n>`, all sharing SL `4464`.
+3. `RISK_PER_SIGNAL` is split evenly across the legs; each lot is sized from the
+   SL distance and clamped to broker volume limits.
+4. `MARKET` orders ("now") fill immediately; `LIMIT`/`STOP` orders are spread
+   across the entry zone.
+5. Follow-ups (`Adjust SL`, `Breakeven`, `Take profits`) target the most recent
+   signal — or **all** active signals when the message says "on all entries".
+6. When the broker closes a leg at its TP, `TP_HIT` messages trigger a
+   reconciliation that syncs local state with the terminal.
+
+---
+
+## ⚙️ Configuration reference
+
+See [`.env.example`](.env.example) for every setting with inline docs. Key ones:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PARSER_MODE` | `hybrid` | `regex` \| `ai` \| `hybrid` |
+| `AI_PROVIDER` | `gemini` | `gemini` \| `anthropic` |
+| `DRY_RUN` | `true` | Simulate orders (no real trades) — **keep true until verified** |
+| `RISK_PER_SIGNAL` | `0.01` | 1% of equity per signal |
+| `MAX_DAILY_LOSS` | `0.05` | Halt after 5% daily loss |
+| `ONE_POSITION_PER_TP` | `true` | One position per TP vs. a single position |
+| `PIP_SIZE` | `0.1` | XAUUSD pip in price (70 pips ≈ 7.0) |
+
+---
+
+## 🧪 Tests
+
+```bash
+pytest -q
+```
+`tests/test_parser.py` pins parser behaviour to the exact GTMO screenshot styles;
+`tests/test_pipeline.py` runs a full entry → SL → partial → breakeven lifecycle
+against the simulator.
+
+---
+
+## 🧯 Disclaimer
+
+This project is provided for educational purposes. It automates copying of a
+third-party signal channel and is not financial advice. Markets are risky;
+leveraged Gold especially so. You are solely responsible for any trades placed.

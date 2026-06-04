@@ -1,0 +1,16 @@
+# --- Core runtime ---------------------------------------------------------
+telethon==1.36.0          # Telegram client (asyncio)
+python-dotenv==1.0.1      # .env loading
+
+# --- AI parsers (optional, per AI_PROVIDER) --------------------------------
+google-genai>=1.0.0       # Gemini parser  (AI_PROVIDER=gemini)
+anthropic>=0.39.0         # Claude parser  (AI_PROVIDER=anthropic)
+
+# --- MetaTrader 5 ----------------------------------------------------------
+# Windows-only. Install on the trading host; the bot auto-falls back to a
+# built-in simulator when this package is unavailable (e.g. Linux/dev/dry-run).
+MetaTrader5==5.0.4682 ; platform_system == "Windows"
+
+# --- Dev / test ------------------------------------------------------------
+pytest==8.3.3
+pytest-asyncio==0.24.0

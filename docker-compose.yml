@@ -1,0 +1,14 @@
+services:
+  gtmo-bot:
+    build: .
+    container_name: gtmo-xauusd-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist Telethon session so you don't re-login on every restart.
+      - ./gtmo_session.session:/app/gtmo_session.session
+      - ./logs:/app/logs
+      - ./state:/app/state
+    # The bot is long-running and reconnects on its own.
+    stop_grace_period: 20s
