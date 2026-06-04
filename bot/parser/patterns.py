@@ -111,6 +111,17 @@ RE_CLOSE_ALL = re.compile(
     re.I,
 )
 
+# Close *part* of the basket: "Close first entries now", "close one more entry",
+# "cut some entries". Verb is restricted to close/cut (NOT "reduce", which is
+# usually part of a conditional plan like "will reduce risk once we get below")
+# so forward-looking commentary isn't mistaken for an order.
+RE_CLOSE_SOME = re.compile(
+    r"\b(?:close|closing|cut|cutting)\b[^.\n]{0,25}?"
+    r"\b(?:first|one|some|a\s+few|few|half|worst|extra|early|one\s+more)\b"
+    r"[^.\n]{0,20}?\b(?:entr(?:y|ies)|positions?)\b",
+    re.I,
+)
+
 # Phrases that explicitly target "all entries" → apply to every open position.
 RE_ALL_ENTRIES = re.compile(r"\ball\s+entries\b", re.I)
 

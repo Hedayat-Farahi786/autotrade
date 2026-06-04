@@ -5,6 +5,9 @@ Usage:
     python main.py            # run the bot (mode/provider from .env)
     python main.py --parse "Gold buy now 4470 - 4467\\nSL: 4464\\nTP: 4472"
                               # offline: parse a message and print intents
+    python main.py --backfill 3        # read-only: replay last 3 days of the
+                              # channel and show how each message parses
+    python main.py --backfill 3 --show-noise   # include ignored messages
 """
 from __future__ import annotations
 
@@ -46,10 +49,21 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="GTMO XAUUSD Telegram → MT5 bot")
     ap.add_argument("--parse", metavar="TEXT",
                     help="Parse a single message offline and print the intents.")
+    ap.add_argument("--backfill", metavar="DAYS", type=int,
+                    help="Replay the last DAYS of channel history (read-only, "
+                         "no trades) and report how each message parses.")
+    ap.add_argument("--show-noise", action="store_true",
+                    help="With --backfill, also list ignored/noise messages.")
     args = ap.parse_args()
 
     if args.parse is not None:
         _run_parse(args.parse.replace("\\n", "\n"))
+        return
+
+    if args.backfill is not None:
+        from bot.replay import run_backfill
+
+        run_backfill(days=args.backfill, show_noise=args.show_noise)
         return
 
     from bot.app import main as run_bot

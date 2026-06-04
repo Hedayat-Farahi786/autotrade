@@ -83,7 +83,8 @@ class SignalParser:
                 )
             )
 
-        # Partial profit taking.
+        # Partial profit taking, or closing part of the basket ("close first
+        # entries", "close one more entry").
         if P.RE_PARTIAL.search(text):
             intents.append(
                 Intent(
@@ -92,6 +93,16 @@ class SignalParser:
                     message_id=message_id,
                     close_fraction=0.5,
                     matched_rule="partial",
+                )
+            )
+        elif P.RE_CLOSE_SOME.search(text):
+            intents.append(
+                Intent(
+                    type=IntentType.PARTIAL_CLOSE,
+                    raw_text=text,
+                    message_id=message_id,
+                    close_fraction=0.5,
+                    matched_rule="close_some",
                 )
             )
 

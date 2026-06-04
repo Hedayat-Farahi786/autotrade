@@ -100,6 +100,36 @@ def test_compound_tp_partial_and_breakeven():
     assert only(intents, IntentType.TP_HIT).tp_index == 2
 
 
+def test_sell_entry_with_decimal_zone():
+    text = (
+        "Gold sell now 4454.3 - 4458.3\n"
+        "SL: 4462\n"
+        "TP: 4452\nTP: 4450\nTP: 4448\nTP: 4446\nTP: open"
+    )
+    e = only(P.parse(text, 20), IntentType.ENTRY).entry
+    assert e.direction is Direction.SELL
+    assert e.entry_low == 4454.3 and e.entry_high == 4458.3
+    assert e.sl == 4462
+    assert [tp.price for tp in e.concrete_tps] == [4452, 4450, 4448, 4446]
+    assert any(tp.is_open for tp in e.take_profits)
+
+
+def test_close_first_entries_with_breakeven():
+    text = "Close first entries now and only hold your best entries with breakeven!!"
+    intents = P.parse(text, 21)
+    types = {i.type for i in intents}
+    assert IntentType.PARTIAL_CLOSE in types
+    assert IntentType.BREAKEVEN in types
+    # Must NOT close the whole signal.
+    assert IntentType.CLOSE_ALL not in types
+
+
+def test_close_one_more_entry():
+    intents = P.parse("300+ pippsss I'll close one more entry now here", 22)
+    only(intents, IntentType.PARTIAL_CLOSE)
+    assert all(i.type is not IntentType.CLOSE_ALL for i in intents)
+
+
 # --------------------------------------------------------------------------- #
 #  Noise — must NOT trigger trades
 # --------------------------------------------------------------------------- #
@@ -114,6 +144,14 @@ def test_compound_tp_partial_and_breakeven():
         "Floating in profits, next to TP1 again",
         "Its gotta be a jackpot trade come on flyyyyy",
         "god we been plenty of wins in profit, so this was more a management trade",
+        "We in blueeee 😎😎😎",
+        "EVERYTHING IN PROFITSSSS!!! 😂😂😂",
+        "More blueeee for the TEAM VIP!",
+        "Bigger zone, bigger rewards!",
+        "Already touched our top of the zone!",
+        # Conditional plan — "reduce" + future tense must NOT be read as an order.
+        "Will instant reduce risk, once we get below the first entries as I got "
+        "below entries now!",
     ],
 )
 def test_noise_is_ignored(text):
