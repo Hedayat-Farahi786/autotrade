@@ -11,6 +11,10 @@ anthropic>=0.39.0         # Claude parser  (AI_PROVIDER=anthropic)
 # built-in simulator when this package is unavailable (e.g. Linux/dev/dry-run).
 MetaTrader5==5.0.4682 ; platform_system == "Windows"
 
+# --- Web dashboard ---------------------------------------------------------
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
 # --- Dev / test ------------------------------------------------------------
 pytest==8.3.3
 pytest-asyncio==0.24.0

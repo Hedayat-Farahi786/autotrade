@@ -116,6 +116,7 @@ class BotConfig:
     log_level: str = "INFO"
     log_dir: str = "logs"
     state_file: str = "state/active_signals.json"
+    status_file: str = "state/status.json"
     # Seconds; ignore messages older than this on startup catch-up.
     max_message_age: int = 120
     # Emergency kill switch file: if this path exists, no new trades are placed.
@@ -200,6 +201,7 @@ def get_config(require_secrets: bool = True) -> BotConfig:
         log_level=_get("LOG_LEVEL", "INFO"),
         log_dir=_get("LOG_DIR", "logs"),
         state_file=_get("STATE_FILE", "state/active_signals.json"),
+        status_file=_get("STATUS_FILE", "state/status.json"),
         max_message_age=_get_int("MAX_MESSAGE_AGE", 120),
         emergency_stop_file=_get("EMERGENCY_STOP_FILE", ".EMERGENCY_STOP"),
     )

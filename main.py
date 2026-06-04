@@ -54,6 +54,12 @@ def main() -> None:
                          "no trades) and report how each message parses.")
     ap.add_argument("--show-noise", action="store_true",
                     help="With --backfill, also list ignored/noise messages.")
+    ap.add_argument("--web", action="store_true",
+                    help="Launch the monitoring dashboard (FastAPI).")
+    ap.add_argument("--demo", action="store_true",
+                    help="With --web, seed sample data for a UI preview.")
+    ap.add_argument("--host", default="127.0.0.1", help="Dashboard host.")
+    ap.add_argument("--port", type=int, default=8000, help="Dashboard port.")
     args = ap.parse_args()
 
     if args.parse is not None:
@@ -64,6 +70,17 @@ def main() -> None:
         from bot.replay import run_backfill
 
         run_backfill(days=args.backfill, show_noise=args.show_noise)
+        return
+
+    if args.web:
+        if args.demo:
+            from web.demo import seed
+
+            seed()
+        from web.server import run as run_web
+
+        print(f"\n  Dashboard → http://{args.host}:{args.port}\n")
+        run_web(host=args.host, port=args.port)
         return
 
     from bot.app import main as run_bot

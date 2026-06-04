@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>GTMO · XAUUSD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='black'/%3E%3Cpath d='M12 4l7 4v8l-7 4-7-4V8z' fill='none' stroke='white' stroke-width='1.4'/%3E%3C/svg%3E" />
+</head>
+<body data-state="loading">
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- ───────────────────────── Top bar ───────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M12 7.5l4 2.25v4.5L12 16.5l-4-2.25v-4.5z" fill="currentColor" opacity="0.18"/>
+        </svg>
+      </span>
+      <div class="brand__text">
+        <h1>GTMO</h1>
+        <p>XAUUSD · Auto-execution</p>
+      </div>
+    </div>
+
+    <div class="status-cluster">
+      <span class="mode-pill" id="modePill" data-mode="">
+        <span class="mode-pill__dot"></span>
+        <span id="modeLabel">—</span>
+      </span>
+      <div class="conns">
+        <span class="conn" id="connTg" title="Telegram"><span class="conn__dot"></span>TG</span>
+        <span class="conn" id="connMt5" title="MetaTrader 5"><span class="conn__dot"></span>MT5</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ─────────────────────── Metrics ─────────────────────── -->
+    <section class="metrics" aria-label="Account metrics">
+      <article class="stat" id="statBalance">
+        <span class="stat__label">Balance</span>
+        <span class="stat__value mono" data-value>—</span>
+        <span class="stat__sub mono" id="symbolTag"></span>
+      </article>
+      <article class="stat" id="statEquity">
+        <span class="stat__label">Equity</span>
+        <span class="stat__value mono" data-value>—</span>
+        <span class="stat__sub" id="equityHint"></span>
+      </article>
+      <article class="stat" id="statPnl">
+        <span class="stat__label">Daily P/L</span>
+        <span class="stat__value mono" data-value>—</span>
+        <span class="stat__sub" id="pnlBar"><span class="risk-bar"><i></i></span></span>
+      </article>
+      <article class="stat" id="statSignals">
+        <span class="stat__label">Open</span>
+        <span class="stat__value mono" data-value>0</span>
+        <span class="stat__sub" id="positionsHint">0 positions</span>
+      </article>
+    </section>
+
+    <!-- ─────────────────────── Panels ─────────────────────── -->
+    <div class="grid">
+      <section class="panel" id="panelPositions">
+        <header class="panel__head">
+          <h2>Positions</h2>
+          <span class="panel__count" id="positionsCount">0</span>
+        </header>
+        <div class="panel__body" id="positionsList">
+          <div class="empty" id="positionsEmpty">
+            <span class="empty__mark">◇</span>
+            <p>No active signals</p>
+            <small>Waiting for the next entry from the channel</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panelFeed">
+        <header class="panel__head">
+          <h2>Signal feed</h2>
+          <span class="live-dot" id="liveDot" title="Live"></span>
+        </header>
+        <div class="panel__body feed" id="feedList">
+          <div class="empty" id="feedEmpty">
+            <span class="empty__mark">◇</span>
+            <p>No messages yet</p>
+            <small>Parsed channel activity appears here in real time</small>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ─────────────────────── Control bar ─────────────────────── -->
+  <footer class="controlbar">
+    <div class="controlbar__info">
+      <span class="dry-flag" id="dryFlag">—</span>
+      <span class="conn-state" id="connState">Connecting…</span>
+    </div>
+    <button class="estop" id="estopBtn" type="button" aria-pressed="false">
+      <span class="estop__ring"></span>
+      <span class="estop__label" id="estopLabel">Emergency stop</span>
+    </button>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

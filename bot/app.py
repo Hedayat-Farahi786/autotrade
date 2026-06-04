@@ -8,7 +8,10 @@ terminal) is isolated behind a dedicated worker thread in :mod:`bot.mt5`.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import signal
+import time
 from typing import List, Optional
 
 from .config import BotConfig, get_config
@@ -42,6 +45,7 @@ class TradingBot:
         )
         self.listener = TelegramListener(cfg.telegram, self._on_message)
         self._stopping = False
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     # ----- message pipeline ------------------------------------------------
     async def _on_message(self, text: str, message_id: int) -> None:
@@ -69,7 +73,51 @@ class TradingBot:
         await self.risk.start_day(await self.executor.account_balance())
 
         await self.listener.start()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         log.info("Bot is live. Listening for signals…")
+
+    async def _heartbeat_loop(self, interval: float = 3.0) -> None:
+        """Periodically persist a status snapshot for the web dashboard."""
+
+        while not self._stopping:
+            try:
+                await self._write_status()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Heartbeat write failed: %s", exc)
+            await asyncio.sleep(interval)
+
+    async def _write_status(self) -> None:
+        actives = self.state.active_signals()
+        snapshot = {
+            "ts": round(time.time(), 3),
+            "dry_run": self.cfg.dry_run,
+            "parser_mode": self.cfg.parser.mode,
+            "provider": self.cfg.parser.provider,
+            "symbol": self.executor.symbol,
+            "simulate": self.executor.simulate,
+            "telegram_connected": bool(
+                getattr(self.listener, "_client", None)
+                and self.listener._client.is_connected()
+            ),
+            "mt5_connected": self.executor._connected,
+            "balance": await self.executor.account_balance(),
+            "equity": await self.executor.account_equity(),
+            "halted": self.risk.halted,
+            "daily_loss": (self.risk._guard.realized_loss if self.risk._guard else 0.0),
+            "daily_start_balance": (
+                self.risk._guard.start_balance if self.risk._guard else 0.0
+            ),
+            "max_daily_loss": self.cfg.risk.max_daily_loss,
+            "open_signals": len(actives),
+            "open_positions": sum(len(s.open_positions()) for s in actives),
+            "emergency_stop": os.path.exists(self.cfg.emergency_stop_file),
+        }
+        path = self.cfg.status_file
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(snapshot, fh, indent=2)
+        os.replace(tmp, path)
 
     async def run(self) -> None:
         await self.start()
@@ -81,6 +129,8 @@ class TradingBot:
         self._stopping = True
         log.info("Shutting down…")
         audit("bot_stop")
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
         await self.listener.stop()
         await self.executor.shutdown()
 

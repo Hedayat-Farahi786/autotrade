@@ -70,7 +70,11 @@ bot/
 ├── mt5/executor.py     # MT5 execution + in-memory simulator
 ├── risk/manager.py     # sizing, daily-loss halt, validation
 └── state/manager.py    # active signals/positions, JSON persistence
-main.py                 # entry point + offline `--parse` tool
+web/
+├── server.py           # FastAPI dashboard backend (REST + WebSocket)
+├── demo.py             # seed sample data for a UI preview
+└── static/             # black & white, mobile-first SPA (html/css/js)
+main.py                 # entry point + offline `--parse` / `--web` tools
 tests/                  # parser + end-to-end pipeline tests
 ```
 
@@ -162,6 +166,32 @@ Scanned 142 message(s); 17 actionable.
 ```
 This is the recommended way to tune `PARSER_MODE`/patterns against the channel's
 real wording before going live.
+
+---
+
+## 🖥️ Dashboard
+
+A clean, minimal, **black-and-white, mobile-first** web dashboard to monitor and
+control the bot in real time.
+
+```bash
+python main.py --web                 # http://127.0.0.1:8000
+python main.py --web --demo          # seed sample data and preview the UI
+python main.py --web --host 0.0.0.0 --port 8080
+```
+
+It shows live **balance / equity / daily P&L / open exposure**, the **active
+positions** (per-signal legs, SL, TP, breakeven flags) and a **live signal feed**
+(every message → parsed intent → MT5 action), and includes a one-tap
+**Emergency Stop** that engages the kill switch. Updates stream over a WebSocket.
+
+The dashboard is fully **decoupled** from the trading process — it reads the
+bot's `state/`+`logs/` artifacts and writes the emergency-stop file — so it can
+run in the same or a separate process, and the bot keeps a `state/status.json`
+heartbeat for it. Built with FastAPI + vanilla JS (no build step).
+
+> Tip: run the bot (`python main.py`) and the dashboard (`python main.py --web`)
+> as two processes pointed at the same `LOG_DIR`/`STATE_FILE`.
 
 ---
 
