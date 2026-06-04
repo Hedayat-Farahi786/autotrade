@@ -141,28 +141,6 @@ python main.py --parse "Gold buy now 4470 - 4467\nSL: 4464\nTP: 4472\nTP: open (
 python main.py --parse "TP2 smashed take some more profits and set breakeven now"
 ```
 
-### 6. Replay real channel history (read-only — best way to validate)
-Instead of forwarding messages anywhere, point the bot at the channel and let it
-**replay the last few days of real history** through the parser. It places **no
-trades** — it just shows how every message is interpreted:
-```bash
-python main.py --backfill 3              # last 3 days
-python main.py --backfill 7 --show-noise # include ignored messages
-```
-Example output:
-```
-[06-04 13:00] #4821   Gold sell now 4454.3 - 4458.3 ⏎ SL: 4462 ⏎ TP: 4452 …
-            └─► ENTRY SELL MARKET 4454.3-4458.3 SL=4462.0 TP=[4452, 4450, …, open]
-[06-04 13:31] #4839   TP2 smasssheddd take some more profits and set breakeven…
-            └─► TP_HIT (tp=2)
-            └─► PARTIAL_CLOSE (partial, 50%)
-            └─► BREAKEVEN
-============================================================
-Scanned 142 message(s); 17 actionable.
-```
-This is the recommended way to tune `PARSER_MODE`/patterns against the channel's
-real wording before going live.
-
 ---
 
 ## 🛡️ Risk management
