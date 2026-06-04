@@ -20,12 +20,14 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import (Depends, FastAPI, Header, HTTPException, Query, WebSocket,
+                     WebSocketDisconnect)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from bot.analytics.performance import load_records, summarize
 from bot.config import get_config
+from bot.control import send_command
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -34,12 +36,45 @@ AUDIT_FILE = os.path.join(cfg.log_dir, "audit.jsonl")
 STATUS_FILE = cfg.status_file
 STATE_FILE = cfg.state_file
 STOP_FILE = cfg.emergency_stop_file
+PAUSE_FILE = cfg.control.pause_file
+COMMAND_FILE = cfg.control.command_file
 TRADES_FILE = cfg.trades_file
 REVIEW_FILE = cfg.review_file
+TOKEN = cfg.dashboard.token
+
+
+# --------------------------------------------------------------------------- #
+#  Auth — optional bearer token / password protecting the API + WS
+# --------------------------------------------------------------------------- #
+def _token_ok(provided: Optional[str]) -> bool:
+    return (not TOKEN) or (provided == TOKEN)
+
+
+def require_token(authorization: Optional[str] = Header(None),
+                  token: Optional[str] = Query(None)) -> None:
+    if not TOKEN:
+        return
+    provided = None
+    if authorization and authorization.lower().startswith("bearer "):
+        provided = authorization[7:]
+    if not _token_ok(provided or token):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def read_performance() -> Dict[str, Any]:
     return summarize(load_records(TRADES_FILE))
+
+
+def equity_curve(limit: int = 250) -> List[Dict[str, Any]]:
+    """Cumulative-profit series for the dashboard chart."""
+
+    recs = [r for r in load_records(TRADES_FILE) if r.get("close_price") is not None]
+    recs = recs[-limit:]
+    out, cum = [], 0.0
+    for r in recs:
+        cum += float(r.get("profit", 0.0))
+        out.append({"t": r.get("closed_at"), "equity": round(cum, 2)})
+    return out
 
 
 def read_review_count() -> int:
@@ -240,36 +275,49 @@ async def _startup() -> None:
 # --------------------------------------------------------------------------- #
 #  REST API
 # --------------------------------------------------------------------------- #
-@app.get("/api/status")
+@app.get("/api/auth")
+async def api_auth(authorization: Optional[str] = Header(None),
+                   token: Optional[str] = Query(None)) -> JSONResponse:
+    """Report whether auth is required and (if a token was sent) whether it's valid."""
+
+    provided = None
+    if authorization and authorization.lower().startswith("bearer "):
+        provided = authorization[7:]
+    return JSONResponse({"required": bool(TOKEN), "ok": _token_ok(provided or token)})
+
+
+@app.get("/api/status", dependencies=[Depends(require_token)])
 async def api_status() -> JSONResponse:
     status = read_status()
     status["emergency_stop"] = os.path.exists(STOP_FILE)
+    status["paused"] = os.path.exists(PAUSE_FILE)
     # Authoritative performance straight from the trade journal.
     status.setdefault("performance", read_performance())
     status.setdefault("review_queue", read_review_count())
     return JSONResponse(status)
 
 
-@app.get("/api/performance")
+@app.get("/api/performance", dependencies=[Depends(require_token)])
 async def api_performance() -> JSONResponse:
     return JSONResponse({
         "performance": read_performance(),
-        "recent": load_records(TRADES_FILE)[-20:],
+        "recent": load_records(TRADES_FILE)[-25:],
+        "equity_curve": equity_curve(),
         "review_queue": read_review_count(),
     })
 
 
-@app.get("/api/signals")
+@app.get("/api/signals", dependencies=[Depends(require_token)])
 async def api_signals() -> JSONResponse:
     return JSONResponse({"signals": read_signals()})
 
 
-@app.get("/api/feed")
+@app.get("/api/feed", dependencies=[Depends(require_token)])
 async def api_feed(limit: int = 80) -> JSONResponse:
     return JSONResponse({"feed": read_feed(limit=limit)})
 
 
-@app.post("/api/control/emergency-stop")
+@app.post("/api/control/emergency-stop", dependencies=[Depends(require_token)])
 async def api_emergency_stop(payload: Dict[str, Any]) -> JSONResponse:
     enabled = bool(payload.get("enabled"))
     if enabled:
@@ -284,8 +332,39 @@ async def api_emergency_stop(payload: Dict[str, Any]) -> JSONResponse:
     return JSONResponse({"emergency_stop": state})
 
 
+@app.post("/api/control/pause", dependencies=[Depends(require_token)])
+async def api_pause(payload: Dict[str, Any]) -> JSONResponse:
+    """Toggle the pause flag directly (works even if the bot is offline)."""
+
+    enabled = bool(payload.get("enabled"))
+    if enabled:
+        os.makedirs(os.path.dirname(PAUSE_FILE) or ".", exist_ok=True)
+        Path(PAUSE_FILE).write_text("paused via dashboard\n", encoding="utf-8")
+        send_command(COMMAND_FILE, "pause", source="dashboard")
+    else:
+        try:
+            os.remove(PAUSE_FILE)
+        except FileNotFoundError:
+            pass
+        send_command(COMMAND_FILE, "resume", source="dashboard")
+    state = os.path.exists(PAUSE_FILE)
+    await hub.broadcast({"type": "paused", "enabled": state})
+    return JSONResponse({"paused": state})
+
+
+@app.post("/api/control/close-all", dependencies=[Depends(require_token)])
+async def api_close_all() -> JSONResponse:
+    """Ask the running bot to flatten everything (via the command bus)."""
+
+    send_command(COMMAND_FILE, "close_all", source="dashboard")
+    return JSONResponse({"queued": True})
+
+
 @app.websocket("/ws")
-async def ws(ws: WebSocket) -> None:
+async def ws(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
+    if TOKEN and not _token_ok(token):
+        await ws.close(code=4401)
+        return
     await hub.join(ws)
     try:
         # Send an initial snapshot on connect.

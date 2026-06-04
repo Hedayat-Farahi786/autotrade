@@ -12,6 +12,19 @@
 <body data-state="loading">
   <div class="grain" aria-hidden="true"></div>
 
+  <!-- ───────────────────────── Login gate ───────────────────────── -->
+  <div class="login is-hidden" id="loginGate">
+    <form class="login__card" id="loginForm">
+      <span class="login__mark">◆</span>
+      <h2>GTMO</h2>
+      <p>Enter access token</p>
+      <input type="password" id="tokenInput" autocomplete="current-password"
+             placeholder="Dashboard token" />
+      <button type="submit">Unlock</button>
+      <small id="loginError"></small>
+    </form>
+  </div>
+
   <!-- ───────────────────────── Top bar ───────────────────────── -->
   <header class="topbar">
     <div class="brand">
@@ -83,6 +96,10 @@
         <div class="perf__cell"><span>Max DD</span><b class="mono" data-perf="max_drawdown">—</b></div>
         <div class="perf__cell"><span>Streak</span><b class="mono" data-perf="streak">—</b></div>
       </div>
+      <div class="equity">
+        <div class="equity__head"><span>Equity curve</span><span class="mono" id="equityNet">—</span></div>
+        <canvas id="equityChart" height="120" aria-label="Cumulative P/L"></canvas>
+      </div>
     </section>
 
     <!-- ─────────────────────── Panels ─────────────────────── -->
@@ -115,6 +132,23 @@
         </div>
       </section>
     </div>
+
+    <!-- ─────────────────────── Trade history ─────────────────────── -->
+    <section class="panel" id="panelHistory">
+      <header class="panel__head">
+        <h2>Trade history</h2>
+        <span class="panel__count" id="historyCount">0</span>
+      </header>
+      <div class="panel__body">
+        <div class="histtable" id="historyList">
+          <div class="empty" id="historyEmpty">
+            <span class="empty__mark">◇</span>
+            <p>No closed trades</p>
+            <small>Closed legs and their P/L will be listed here</small>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- ─────────────────────── Control bar ─────────────────────── -->
@@ -123,10 +157,20 @@
       <span class="dry-flag" id="dryFlag">—</span>
       <span class="conn-state" id="connState">Connecting…</span>
     </div>
-    <button class="estop" id="estopBtn" type="button" aria-pressed="false">
-      <span class="estop__ring"></span>
-      <span class="estop__label" id="estopLabel">Emergency stop</span>
-    </button>
+    <div class="controls">
+      <button class="ctl" id="pauseBtn" type="button" aria-pressed="false" title="Pause new entries">
+        <span class="ctl__icon" id="pauseIcon">⏸</span>
+        <span class="ctl__label" id="pauseLabel">Pause</span>
+      </button>
+      <button class="ctl ctl--warn" id="closeAllBtn" type="button" title="Close all positions">
+        <span class="ctl__icon">⛌</span>
+        <span class="ctl__label">Close all</span>
+      </button>
+      <button class="estop" id="estopBtn" type="button" aria-pressed="false">
+        <span class="estop__ring"></span>
+        <span class="estop__label" id="estopLabel">Emergency stop</span>
+      </button>
+    </div>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -9,6 +9,16 @@
   const MAX_FEED = 60;
   let feedCount = 0;
 
+  /* --------------------------------------------------------------- auth */
+  const TOKEN_KEY = "gtmo_token";
+  let token = localStorage.getItem(TOKEN_KEY) || "";
+
+  const authedFetch = (url, opts = {}) => {
+    const headers = Object.assign({}, opts.headers);
+    if (token) headers["Authorization"] = "Bearer " + token;
+    return fetch(url, Object.assign({}, opts, { headers }));
+  };
+
   /* ----------------------------------------------------------------- utils */
   const fmtMoney = (v) => {
     if (v == null || isNaN(v)) return "—";
@@ -99,8 +109,9 @@
       $("#intelChip").classList.toggle("is-off", !s.intel_enabled);
     }
 
-    // Emergency stop button reflects live state.
+    // Emergency stop + pause buttons reflect live state.
     setEstop(!!s.emergency_stop);
+    if (s.paused != null) setPaused(!!s.paused);
     if (s.halted) $("#equityHint").textContent = "Daily loss limit reached";
   }
 
@@ -139,6 +150,88 @@
     const chip = $("#reviewChip");
     chip.textContent = `${n} to review`;
     chip.classList.toggle("is-off", !n);
+  }
+
+  /* --------------------------------------------------------- equity chart */
+  function renderEquity(curve) {
+    const canvas = $("#equityChart");
+    if (!canvas) return;
+    const net = curve && curve.length ? curve[curve.length - 1].equity : 0;
+    $("#equityNet").textContent = curve && curve.length
+      ? (net >= 0 ? "+" : "−") + fmtMoney(Math.abs(net)) : "—";
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
+    const h = 120;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    if (!curve || curve.length < 2) return;
+
+    const vals = curve.map((p) => p.equity);
+    let min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+    if (min === max) { max += 1; min -= 1; }
+    const pad = 6;
+    const x = (i) => pad + (i / (curve.length - 1)) * (w - pad * 2);
+    const y = (v) => h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+
+    // Zero baseline.
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - pad, y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Area fill.
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, "rgba(255,255,255,0.18)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(vals[0]));
+    curve.forEach((p, i) => ctx.lineTo(x(i), y(p.equity)));
+    ctx.lineTo(x(curve.length - 1), y(0));
+    ctx.lineTo(x(0), y(0));
+    ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+    // Line.
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(vals[0]));
+    curve.forEach((p, i) => ctx.lineTo(x(i), y(p.equity)));
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.6;
+    ctx.lineJoin = "round"; ctx.stroke();
+
+    // End dot.
+    ctx.beginPath();
+    ctx.arc(x(curve.length - 1), y(net), 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+  }
+
+  let lastCurve = null;
+  window.addEventListener("resize", () => { if (lastCurve) renderEquity(lastCurve); });
+
+  /* -------------------------------------------------------- trade history */
+  function renderHistory(recent) {
+    const list = $("#historyList");
+    $("#historyCount").textContent = recent ? recent.length : 0;
+    list.querySelectorAll(".histrow").forEach((n) => n.remove());
+    if (!recent || !recent.length) {
+      $("#historyEmpty").classList.remove("is-hidden");
+      return;
+    }
+    $("#historyEmpty").classList.add("is-hidden");
+    for (const t of recent.slice().reverse()) {
+      const row = document.createElement("div");
+      row.className = "histrow";
+      const pl = t.profit || 0;
+      const when = t.closed_at ? relTime(t.closed_at) : "";
+      const r = t.r_multiple != null ? (t.r_multiple >= 0 ? "+" : "") + t.r_multiple + "R" : "";
+      row.innerHTML = `
+        <span class="histrow__time">${when}</span>
+        <span class="histrow__sig"><b>#${esc(t.signal_id)}</b> ${esc(t.direction)} ${esc(t.label || "")} <span style="opacity:.5">${esc(t.reason || "")}</span></span>
+        <span class="histrow__r">${esc(r)}</span>
+        <span class="histrow__pl ${pl >= 0 ? "up" : "down"}">${pl >= 0 ? "+" : "−"}${fmtMoney(Math.abs(pl))}</span>`;
+      list.appendChild(row);
+    }
   }
 
   function toggleConn(el, on) {
@@ -290,7 +383,7 @@
     const next = !estopOn;
     setEstop(next); // optimistic
     try {
-      const r = await fetch("/api/control/emergency-stop", {
+      const r = await authedFetch("/api/control/emergency-stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: next }),
@@ -304,39 +397,93 @@
     }
   });
 
+  /* ----------------------------------------------------------------- pause */
+  let pausedOn = false;
+  function setPaused(on) {
+    pausedOn = on;
+    const btn = $("#pauseBtn");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    $("#pauseLabel").textContent = on ? "Paused" : "Pause";
+    $("#pauseIcon").textContent = on ? "▶" : "⏸";
+  }
+
+  $("#pauseBtn").addEventListener("click", async () => {
+    const next = !pausedOn;
+    setPaused(next);
+    try {
+      const r = await authedFetch("/api/control/pause", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const data = await r.json();
+      setPaused(!!data.paused);
+      toast(data.paused ? "New entries paused" : "Entries resumed");
+    } catch (e) { setPaused(!next); toast("Action failed"); }
+  });
+
+  $("#closeAllBtn").addEventListener("click", async () => {
+    if (!confirm("Close ALL open positions now?")) return;
+    try {
+      await authedFetch("/api/control/close-all", { method: "POST" });
+      toast("Close-all sent to bot");
+    } catch (e) { toast("Action failed"); }
+  });
+
   /* --------------------------------------------------------------- network */
   async function loadInitial() {
     try {
       const [st, sig, fd, perf] = await Promise.all([
-        fetch("/api/status").then((r) => r.json()),
-        fetch("/api/signals").then((r) => r.json()),
-        fetch("/api/feed").then((r) => r.json()),
-        fetch("/api/performance").then((r) => r.json()).catch(() => null),
+        authedFetch("/api/status").then((r) => r.json()),
+        authedFetch("/api/signals").then((r) => r.json()),
+        authedFetch("/api/feed").then((r) => r.json()),
+        authedFetch("/api/performance").then((r) => r.json()).catch(() => null),
       ]);
       renderStatus(st);
       renderSignals(sig.signals || []);
       renderFeedSnapshot(fd.feed || []);
-      if (perf && perf.performance) { renderPerformance(perf.performance); renderReview(perf.review_queue || 0); }
+      if (perf) {
+        if (perf.performance) renderPerformance(perf.performance);
+        renderReview(perf.review_queue || 0);
+        lastCurve = perf.equity_curve || [];
+        renderEquity(lastCurve);
+        renderHistory(perf.recent || []);
+      }
     } catch (e) {
       renderStatus({ online: false });
     }
   }
 
+  async function refreshPerformance() {
+    try {
+      const perf = await authedFetch("/api/performance").then((r) => r.json());
+      if (perf.performance) renderPerformance(perf.performance);
+      renderReview(perf.review_queue || 0);
+      lastCurve = perf.equity_curve || [];
+      renderEquity(lastCurve);
+      renderHistory(perf.recent || []);
+    } catch (e) { /* ignore */ }
+  }
+
   let ws, retry = 0;
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const q = token ? `?token=${encodeURIComponent(token)}` : "";
+    ws = new WebSocket(`${proto}://${location.host}/ws${q}`);
 
-    ws.onopen = () => { retry = 0; };
+    ws.onopen = () => { retry = 0; $("#liveDot").style.opacity = "1"; };
     ws.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
         case "status": renderStatus(msg.status); break;
-        case "signals": renderSignals(msg.signals || []); break;
+        case "signals":
+          renderSignals(msg.signals || []);
+          refreshPerformance();  // a position change likely closed a trade
+          break;
         case "feed": addFeed(msg.item, true); break;
         case "feed_snapshot": renderFeedSnapshot(msg.feed || []); break;
         case "emergency": setEstop(!!msg.enabled); break;
+        case "paused": setPaused(!!msg.enabled); break;
       }
     };
     ws.onclose = () => {
@@ -347,10 +494,37 @@
     ws.onerror = () => ws.close();
   }
 
-  // Keep relative times fresh.
-  setInterval(() => {
-    document.querySelectorAll(".feeditem__time").forEach((el) => {});
-  }, 15000);
+  /* ------------------------------------------------------------ auth gate */
+  async function checkAuth() {
+    try {
+      const r = await authedFetch("/api/auth").then((x) => x.json());
+      return !r.required || r.ok;
+    } catch (e) { return true; }  // if unreachable, let the app try anyway
+  }
 
-  loadInitial().then(connect);
+  function showLogin(err) {
+    const gate = $("#loginGate");
+    gate.classList.remove("is-hidden");
+    $("#loginError").textContent = err || "";
+    $("#tokenInput").focus();
+  }
+
+  $("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    token = $("#tokenInput").value.trim();
+    if (!(await checkAuth())) { showLogin("Invalid token"); return; }
+    localStorage.setItem(TOKEN_KEY, token);
+    $("#loginGate").classList.add("is-hidden");
+    boot();
+  });
+
+  async function boot() {
+    await loadInitial();
+    connect();
+  }
+
+  (async () => {
+    if (await checkAuth()) boot();
+    else showLogin();
+  })();
 })();

@@ -385,6 +385,85 @@ body > *:not(.grain) { position: relative; z-index: 1; }
 /* Skeleton shimmer for loading */
 body[data-state="loading"] .stat__value { color: var(--text-faint); }
 
+/* ───────────────────────────── Login gate ───────────────────────── */
+.login {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(0, 0, 0, 0.92); backdrop-filter: blur(8px);
+}
+.login__card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: 100%; max-width: 320px; padding: 32px 26px;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg); animation: rise 0.5s var(--ease-out);
+}
+.login__mark { font-size: 26px; color: var(--white); }
+.login__card h2 { font-size: 18px; letter-spacing: 0.16em; }
+.login__card p { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+.login__card input {
+  width: 100%; padding: 12px 14px; font-size: 14px; font-family: var(--mono);
+  color: var(--text); background: var(--bg); text-align: center;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); outline: none;
+  transition: border-color 0.3s var(--ease);
+}
+.login__card input:focus { border-color: var(--white); }
+.login__card button {
+  width: 100%; padding: 12px; font-weight: 650; font-size: 14px; cursor: pointer;
+  color: #000; background: var(--white); border: none; border-radius: var(--r-sm);
+  transition: transform 0.2s var(--ease);
+}
+.login__card button:active { transform: scale(0.98); }
+.login__card small { color: var(--text-faint); font-size: 11px; min-height: 14px; }
+
+/* ───────────────────────────── Equity chart ─────────────────────── */
+.equity { padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+.equity__head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 8px;
+}
+.equity__head span:first-child {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.13em; color: var(--text-faint);
+}
+.equity__head span:last-child { font-size: 13px; font-weight: 600; }
+#equityChart { width: 100%; display: block; }
+
+/* ───────────────────────────── History table ────────────────────── */
+.histtable { display: flex; flex-direction: column; }
+.histrow {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px;
+  align-items: center; padding: 11px 12px; font-size: 13px;
+  animation: slidein 0.4s var(--ease-out) backwards;
+}
+.histrow + .histrow { border-top: 1px solid var(--line); }
+.histrow__time { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.histrow__sig { color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.histrow__sig b { color: var(--text); }
+.histrow__r { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.histrow__pl { font-family: var(--mono); font-weight: 600; text-align: right; }
+.histrow__pl.up { color: var(--white); }
+.histrow__pl.down { color: var(--text-dim); }
+
+/* ───────────────────────────── Control buttons ──────────────────── */
+.controls { display: flex; align-items: center; gap: 8px; }
+.ctl {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line-strong); border-radius: 11px; padding: 11px 14px;
+  transition: transform 0.2s var(--ease), background 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.ctl:hover { transform: translateY(-1px); border-color: var(--white); }
+.ctl:active { transform: translateY(0) scale(0.98); }
+.ctl__icon { font-size: 13px; line-height: 1; }
+.ctl[aria-pressed="true"] { background: var(--white); color: #000; border-color: var(--white); }
+.ctl--warn:hover { border-color: var(--white); }
+/* On small screens, collapse control labels to icons to save room. */
+@media (max-width: 560px) {
+  .ctl__label, .estop__label { display: none; }
+  .ctl, .estop { padding: 11px 13px; }
+}
+
 /* ───────────────────────────── Animations ───────────────────────── */
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }

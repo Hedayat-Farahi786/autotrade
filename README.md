@@ -183,9 +183,15 @@ python main.py --web --host 0.0.0.0 --port 8080
 ```
 
 It shows live **balance / equity / daily P&L / open exposure**, the **active
-positions** (per-signal legs, SL, TP, breakeven flags) and a **live signal feed**
-(every message → parsed intent → MT5 action), and includes a one-tap
-**Emergency Stop** that engages the kill switch. Updates stream over a WebSocket.
+positions** (per-signal legs, SL, TP, breakeven flags), a **live signal feed**
+(every message → parsed intent → MT5 action), a **Performance panel with an
+equity-curve chart**, and a **trade-history table**. Controls include one-tap
+**Emergency Stop**, **Pause/Resume** (block new entries) and **Close-all**.
+Updates stream over a WebSocket.
+
+**Auth:** set `DASHBOARD_TOKEN` to require a token (login screen + bearer auth on
+the API/WebSocket). Strongly recommended if the dashboard is reachable beyond
+localhost — it can halt trading and flatten positions.
 
 The dashboard is fully **decoupled** from the trading process — it reads the
 bot's `state/`+`logs/` artifacts and writes the emergency-stop file — so it can
