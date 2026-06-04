@@ -68,8 +68,10 @@ bot/
 │   └── hybrid.py       # build_parser() factory + hybrid strategy
 ├── telegram/listener.py# Telethon listener with robust auto-reconnect
 ├── mt5/executor.py     # MT5 execution + in-memory simulator
-├── risk/manager.py     # sizing, daily-loss halt, validation
-└── state/manager.py    # active signals/positions, JSON persistence
+├── risk/manager.py     # sizing, daily-loss halt, adaptive throttle, validation
+├── state/manager.py    # active signals/positions, JSON persistence
+├── analytics/          # trade journal + performance metrics (win rate, PF, R…)
+└── intelligence/       # signal scorer + parser self-learning review queue
 web/
 ├── server.py           # FastAPI dashboard backend (REST + WebSocket)
 ├── demo.py             # seed sample data for a UI preview
@@ -192,6 +194,48 @@ heartbeat for it. Built with FastAPI + vanilla JS (no build step).
 
 > Tip: run the bot (`python main.py`) and the dashboard (`python main.py --web`)
 > as two processes pointed at the same `LOG_DIR`/`STATE_FILE`.
+
+---
+
+## 🧠 Intelligence & evolution
+
+> **Honest framing first.** No system can "know" the market or guarantee profit —
+> anything that claims to is dangerous. What makes a system *intelligent* is that
+> it **measures every outcome, learns from it, and adapts** with hard guardrails.
+> These layers improve discipline and consistency; they do not predict price.
+
+Four layers, all on by default and individually configurable:
+
+**1. Performance analytics** (`bot/analytics/`) — every closed trade is journaled
+to `state/trades.jsonl` with its realized P&L and **R-multiple** (profit in units
+of risk). From this the bot computes win rate, **profit factor**, expectancy,
+average R, **max drawdown** and current streak — surfaced live on the dashboard.
+You can't improve what you don't measure.
+
+**2. Signal scoring & filter** (`bot/intelligence/scorer.py`) — before risking a
+cent, each entry gets a transparent 0–1 quality score:
+- stop-loss present? (no SL is penalised or skipped)
+- **risk:reward** of the nearest TP vs. the SL distance
+- **not chasing** — skip if price already ran past the entry toward target
+- **recent edge** — nudged by the journal's win rate / profit factor
+
+Weak setups are **skipped**; mediocre ones are **downsized**. Every decision is
+logged with human-readable reasons (`signal_score` audit events).
+
+**3. Adaptive risk** (`bot/risk/manager.py`) — a bounded throttle that **shrinks
+position size after a losing streak or while in drawdown**, and restores toward
+full size as results recover. Combined with daily-loss protection, this enforces
+"slow down when it's not working."
+
+**4. Parser self-learning queue** (`bot/intelligence/review.py`) — the parser is
+never "done." Messages it was unsure about (low confidence, or where regex and AI
+disagree) are appended to `state/review_queue.jsonl` instead of being silently
+dropped — a queue you skim to add a new pattern or test case. This is how the
+parser **evolves** with the channel.
+
+Together these form a feedback loop: **outcome → measurement → scoring/throttle →
+adapted next action.** Tune everything via the `INTEL_*` / `*_RISK` settings in
+`.env`, or disable with `INTEL_ENABLED=false`.
 
 ---
 

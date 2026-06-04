@@ -14,7 +14,10 @@ import signal
 import time
 from typing import List, Optional
 
+from .analytics.performance import PerformanceTracker
 from .config import BotConfig, get_config
+from .intelligence.review import ReviewLogger
+from .intelligence.scorer import SignalScorer
 from .logger import audit, get_logger, setup_logging
 from .models import Intent
 from .mt5.executor import MT5Executor
@@ -33,7 +36,11 @@ class TradingBot:
         self.executor = MT5Executor(cfg.mt5, dry_run=cfg.dry_run)
         self.state = StateManager(cfg.state_file, magic_base=cfg.mt5.magic_base)
         self.risk = RiskManager(cfg.risk)
-        self.trader = Trader(cfg, self.executor, self.state, self.risk)
+        self.tracker = PerformanceTracker(cfg.trades_file)
+        self.scorer = SignalScorer(cfg.intelligence, pip_size=cfg.risk.pip_size)
+        self.review = ReviewLogger(cfg.review_file)
+        self.trader = Trader(cfg, self.executor, self.state, self.risk,
+                             tracker=self.tracker, scorer=self.scorer)
         self.parser = build_parser(
             cfg.parser.mode,
             provider=cfg.parser.provider,
@@ -57,6 +64,9 @@ class TradingBot:
             log.info("Parsed %d actionable intent(s) from #%s: %s",
                      len(actionable), message_id,
                      ", ".join(i.type.value for i in actionable))
+        # Self-learning: queue uncertain parses for human review.
+        if self.cfg.intelligence.review_enabled:
+            self.review.consider(text, intents, message_id)
         await self.trader.handle(intents)
 
     # ----- lifecycle -------------------------------------------------------
@@ -111,6 +121,9 @@ class TradingBot:
             "open_signals": len(actives),
             "open_positions": sum(len(s.open_positions()) for s in actives),
             "emergency_stop": os.path.exists(self.cfg.emergency_stop_file),
+            "performance": self.tracker.summary(),
+            "review_queue": self.review.count,
+            "intel_enabled": self.cfg.intelligence.enabled,
         }
         path = self.cfg.status_file
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from ..config import RiskConfig
+from ..config import IntelligenceConfig, RiskConfig
 from ..logger import get_logger
 from ..models import EntrySignal
 from ..mt5.executor import SymbolSpec
@@ -45,6 +45,34 @@ class RiskManager:
         if pl < 0:
             self._guard.realized_loss += abs(pl)
         self._check_daily_limit()
+
+    # ----- adaptive throttle ----------------------------------------------
+    def adaptive_multiplier(self, perf: dict, intel: IntelligenceConfig) -> tuple:
+        """Bounded risk multiplier from recent performance.
+
+        Reduces size after a losing streak or while in journal drawdown, and
+        restores toward full size as results recover. Never scales above base.
+        Returns ``(multiplier, reasons)``.
+        """
+
+        if not intel.adaptive_risk or not perf or perf.get("trades", 0) == 0:
+            return 1.0, []
+        mult = 1.0
+        reasons = []
+
+        streak = perf.get("streak", 0)
+        if streak <= -intel.loss_streak_throttle:
+            mult *= intel.throttle_factor
+            reasons.append(f"{-streak} loss streak → ×{intel.throttle_factor}")
+
+        dd = perf.get("max_drawdown", 0.0)
+        start = self._guard.start_balance if self._guard else 0.0
+        if start and dd >= start * intel.drawdown_throttle:
+            mult *= intel.throttle_factor
+            reasons.append(f"drawdown {dd:.0f} → ×{intel.throttle_factor}")
+
+        mult = max(intel.min_size_multiplier, min(intel.max_size_multiplier, mult))
+        return round(mult, 3), reasons
 
     def _check_daily_limit(self) -> None:
         if not self._guard or self._guard.start_balance <= 0:

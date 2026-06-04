@@ -41,6 +41,7 @@ class OrderResult:
     volume: Optional[float] = None
     comment: str = ""
     raw: Any = None
+    profit: Optional[float] = None      # realized P/L for closes
 
 
 @dataclass
@@ -130,15 +131,25 @@ class _Simulator:
             pos.tp = tp
         return OrderResult(ok=True, ticket=ticket, comment="sim-modify")
 
-    def close(self, ticket: int, volume: Optional[float]) -> OrderResult:
+    def close(self, ticket: int, volume: Optional[float],
+              price: Optional[float] = None) -> OrderResult:
         pos = self.positions.get(ticket)
         if not pos:
             return OrderResult(ok=False, comment="sim: position not found")
         vol = pos.volume if volume is None else min(volume, pos.volume)
+        tick = self.tick()
+        is_buy = pos.type == 0
+        fill = price if price is not None else (tick["bid"] if is_buy else tick["ask"])
+        sign = 1.0 if is_buy else -1.0
+        contract = self.symbol_spec().contract_size
+        profit = round((fill - pos.price_open) * sign * vol * contract, 2)
+        self.balance = round(self.balance + profit, 2)
+        self.equity = self.balance
         pos.volume = round(pos.volume - vol, 2)
         if pos.volume <= 0:
             del self.positions[ticket]
-        return OrderResult(ok=True, ticket=ticket, volume=vol, comment="sim-close")
+        return OrderResult(ok=True, ticket=ticket, volume=vol, profit=profit,
+                           comment="sim-close")
 
 
 # --------------------------------------------------------------------------- #
@@ -392,14 +403,15 @@ class MT5Executor:
         return OrderResult(ok=ok, ticket=ticket, comment=str(getattr(result, "comment", "")),
                            raw=result)
 
-    async def close_position(self, ticket: int,
-                             volume: Optional[float] = None) -> OrderResult:
-        return await self._run(self._close_sync, ticket, volume)
+    async def close_position(self, ticket: int, volume: Optional[float] = None,
+                             price: Optional[float] = None) -> OrderResult:
+        return await self._run(self._close_sync, ticket, volume, price)
 
-    def _close_sync(self, ticket: int, volume) -> OrderResult:
+    def _close_sync(self, ticket: int, volume, price=None) -> OrderResult:
         if self.simulate:
-            res = self._sim.close(ticket, volume)  # type: ignore[union-attr]
-            audit("mt5_close", sim=True, ticket=ticket, volume=volume, ok=res.ok)
+            res = self._sim.close(ticket, volume, price)  # type: ignore[union-attr]
+            audit("mt5_close", sim=True, ticket=ticket, volume=res.volume,
+                  ok=res.ok, profit=res.profit)
             return res
         pos = self._find_position(ticket)
         if not pos:
@@ -422,10 +434,30 @@ class MT5Executor:
         }
         result = mt5.order_send(request)  # type: ignore[union-attr]
         ok = result is not None and result.retcode == mt5.TRADE_RETCODE_DONE  # type: ignore
+        profit = self._deal_profit(ticket) if ok else None
         audit("mt5_close", sim=False, ticket=ticket, volume=close_vol, ok=ok,
-              retcode=getattr(result, "retcode", None))
-        return OrderResult(ok=ok, ticket=ticket, volume=close_vol,
+              profit=profit, retcode=getattr(result, "retcode", None))
+        return OrderResult(ok=ok, ticket=ticket, volume=close_vol, profit=profit,
                            comment=str(getattr(result, "comment", "")), raw=result)
+
+    def _deal_profit(self, position_ticket: int) -> Optional[float]:
+        """Sum realized profit of deals belonging to a position (live MT5)."""
+
+        try:
+            import time as _t
+
+            deals = mt5.history_deals_get(  # type: ignore[union-attr]
+                _t.time() - 7 * 86400, _t.time() + 60, position=position_ticket)
+            if not deals:
+                return None
+            return round(sum(d.profit + d.swap + d.commission for d in deals), 2)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def position_profit(self, ticket: int) -> Optional[float]:
+        """Realized profit for a position already closed at the broker."""
+
+        return await self._run(self._deal_profit, ticket)
 
     def _find_position(self, ticket: int):
         positions = mt5.positions_get(ticket=ticket)  # type: ignore[union-attr]

@@ -93,9 +93,52 @@
     setValue($("#statSignals"), fmtNum(s.open_signals || 0));
     $("#positionsHint").textContent = `${s.open_positions || 0} position${(s.open_positions || 0) === 1 ? "" : "s"}`;
 
+    if (s.performance) renderPerformance(s.performance);
+    if (s.review_queue != null) renderReview(s.review_queue);
+    if (s.intel_enabled != null) {
+      $("#intelChip").classList.toggle("is-off", !s.intel_enabled);
+    }
+
     // Emergency stop button reflects live state.
     setEstop(!!s.emergency_stop);
     if (s.halted) $("#equityHint").textContent = "Daily loss limit reached";
+  }
+
+  /* ----------------------------------------------------------- performance */
+  function renderPerformance(p) {
+    if (!p) return;
+    const set = (key, text, dir) => {
+      const el = document.querySelector(`[data-perf="${key}"]`);
+      if (!el) return;
+      if (el.textContent !== String(text)) {
+        el.textContent = text;
+        el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+      }
+      el.classList.toggle("up", dir === 1);
+      el.classList.toggle("down", dir === -1);
+    };
+    set("trades", p.trades ?? 0);
+    set("win_rate", p.trades ? Math.round((p.win_rate || 0) * 100) + "%" : "—");
+    set("profit_factor", p.profit_factor != null ? p.profit_factor : "—",
+        p.profit_factor >= 1 ? 1 : (p.trades ? -1 : 0));
+    const exp = p.expectancy || 0;
+    set("expectancy", p.trades ? (exp >= 0 ? "+" : "−") + fmtMoney(Math.abs(exp)) : "—",
+        p.trades ? (exp >= 0 ? 1 : -1) : 0);
+    set("avg_r", p.avg_r != null ? (p.avg_r >= 0 ? "+" : "") + p.avg_r + "R" : "—",
+        p.avg_r > 0 ? 1 : (p.avg_r < 0 ? -1 : 0));
+    const net = p.net_profit || 0;
+    set("net_profit", p.trades ? (net >= 0 ? "+" : "−") + fmtMoney(Math.abs(net)) : "—",
+        p.trades ? (net >= 0 ? 1 : -1) : 0);
+    set("max_drawdown", p.trades ? fmtMoney(p.max_drawdown || 0) : "—");
+    const st = p.streak || 0;
+    set("streak", st === 0 ? "—" : (st > 0 ? `${st}W` : `${-st}L`),
+        st > 0 ? 1 : (st < 0 ? -1 : 0));
+  }
+
+  function renderReview(n) {
+    const chip = $("#reviewChip");
+    chip.textContent = `${n} to review`;
+    chip.classList.toggle("is-off", !n);
   }
 
   function toggleConn(el, on) {
@@ -264,14 +307,16 @@
   /* --------------------------------------------------------------- network */
   async function loadInitial() {
     try {
-      const [st, sig, fd] = await Promise.all([
+      const [st, sig, fd, perf] = await Promise.all([
         fetch("/api/status").then((r) => r.json()),
         fetch("/api/signals").then((r) => r.json()),
         fetch("/api/feed").then((r) => r.json()),
+        fetch("/api/performance").then((r) => r.json()).catch(() => null),
       ]);
       renderStatus(st);
       renderSignals(sig.signals || []);
       renderFeedSnapshot(fd.feed || []);
+      if (perf && perf.performance) { renderPerformance(perf.performance); renderReview(perf.review_queue || 0); }
     } catch (e) {
       renderStatus({ online: false });
     }

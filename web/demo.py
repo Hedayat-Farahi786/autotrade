@@ -36,9 +36,35 @@ def seed() -> None:
         "open_signals": 1,
         "open_positions": 5,
         "emergency_stop": os.path.exists(cfg.emergency_stop_file),
+        "intel_enabled": True,
+        "review_queue": 2,
     }
+
+    # Trade journal → drives the Performance panel.
+    trades = [
+        {"signal_id": 3, "ticket": 500031, "direction": "BUY", "symbol": "XAUUSD", "label": "TP1", "volume": 0.10, "open_price": 4467.0, "close_price": 4472.0, "profit": 50.0, "risk_amount": 30.0, "reason": "tp", "opened_at": now - 9000, "closed_at": now - 8800, "r_multiple": 1.67},
+        {"signal_id": 3, "ticket": 500032, "direction": "BUY", "symbol": "XAUUSD", "label": "TP2", "volume": 0.10, "open_price": 4467.0, "close_price": 4474.0, "profit": 70.0, "risk_amount": 30.0, "reason": "tp", "opened_at": now - 9000, "closed_at": now - 8600, "r_multiple": 2.33},
+        {"signal_id": 4, "ticket": 500041, "direction": "SELL", "symbol": "XAUUSD", "label": "TP1", "volume": 0.10, "open_price": 4480.0, "close_price": 4484.0, "profit": -40.0, "risk_amount": 30.0, "reason": "sl", "opened_at": now - 7000, "closed_at": now - 6900, "r_multiple": -1.33},
+        {"signal_id": 5, "ticket": 500051, "direction": "BUY", "symbol": "XAUUSD", "label": "TP1", "volume": 0.10, "open_price": 4460.0, "close_price": 4465.0, "profit": 50.0, "risk_amount": 30.0, "reason": "tp", "opened_at": now - 5000, "closed_at": now - 4800, "r_multiple": 1.67},
+        {"signal_id": 7, "ticket": 500101, "direction": "SELL", "symbol": "XAUUSD", "label": "TP1", "volume": 0.10, "open_price": 4456.2, "close_price": 4452.0, "profit": 42.0, "risk_amount": 30.0, "reason": "tp", "opened_at": now - 1800, "closed_at": now - 900, "r_multiple": 1.40},
+        {"signal_id": 7, "ticket": 500102, "direction": "SELL", "symbol": "XAUUSD", "label": "TP2", "volume": 0.10, "open_price": 4456.2, "close_price": 4450.0, "profit": 62.0, "risk_amount": 30.0, "reason": "tp", "opened_at": now - 1800, "closed_at": now - 600, "r_multiple": 2.07},
+    ]
+    with open(cfg.trades_file, "w", encoding="utf-8") as fh:
+        for t in trades:
+            fh.write(json.dumps(t) + "\n")
+
+    from bot.analytics.performance import summarize
+    status["performance"] = summarize(trades)
     with open(cfg.status_file, "w", encoding="utf-8") as fh:
         json.dump(status, fh, indent=2)
+
+    # A couple of items in the parser review queue.
+    with open(cfg.review_file, "w", encoding="utf-8") as fh:
+        for r in [
+            {"ts": now - 800, "message_id": 4840, "text": "scale out a touch here, momentum fading", "reason": "trade_hint_but_noise", "resolved": False},
+            {"ts": now - 400, "message_id": 4842, "text": "let the runner breathe, trail under structure", "reason": "trade_hint_but_noise", "resolved": False},
+        ]:
+            fh.write(json.dumps(r) + "\n")
 
     signals = {
         "next_id": 8,

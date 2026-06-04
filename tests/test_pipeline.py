@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import pytest
 
-from bot.config import MT5Config, RiskConfig, BotConfig, TelegramConfig, ParserConfig
+from bot.analytics.performance import PerformanceTracker
+from bot.config import (BotConfig, IntelligenceConfig, MT5Config, ParserConfig,
+                        RiskConfig, TelegramConfig)
+from bot.intelligence.scorer import SignalScorer
 from bot.mt5.executor import MT5Executor
 from bot.parser.signal_parser import SignalParser
 from bot.risk.manager import RiskManager
@@ -17,20 +20,25 @@ from bot.trader import Trader
 pytestmark = pytest.mark.asyncio
 
 
-def _make(tmp_path):
+def _make(tmp_path, intel=None):
+    intel = intel or IntelligenceConfig()
     cfg = BotConfig(
         telegram=TelegramConfig(api_id=0, api_hash="x", channel="t"),
         mt5=MT5Config(symbol="XAUUSD"),
         risk=RiskConfig(risk_per_signal=0.01, one_position_per_tp=True),
         parser=ParserConfig(mode="regex"),
+        intelligence=intel,
         dry_run=True,
         state_file=str(tmp_path / "state.json"),
+        trades_file=str(tmp_path / "trades.jsonl"),
         emergency_stop_file=str(tmp_path / "nope.STOP"),
     )
     ex = MT5Executor(cfg.mt5, dry_run=True)
     state = StateManager(cfg.state_file, magic_base=cfg.mt5.magic_base)
     risk = RiskManager(cfg.risk)
-    trader = Trader(cfg, ex, state, risk)
+    tracker = PerformanceTracker(cfg.trades_file)
+    scorer = SignalScorer(cfg.intelligence, pip_size=cfg.risk.pip_size)
+    trader = Trader(cfg, ex, state, risk, tracker=tracker, scorer=scorer)
     return cfg, ex, state, risk, trader
 
 

@@ -95,6 +95,30 @@ class RiskConfig:
 
 
 @dataclass
+class IntelligenceConfig:
+    # Signal scoring / filtering
+    enabled: bool = True
+    min_signal_score: float = 0.45     # skip entries scoring below this
+    require_sl: bool = True            # refuse signals with no stop-loss
+    min_rr: float = 0.8               # warn/penalise below this risk:reward
+    require_min_rr: bool = False       # if true, also skip below min_rr
+    max_chase_ratio: float = 2.0       # skip if price ran > N×SL past entry
+    min_size_factor: float = 0.4       # smallest size multiplier from a take
+    min_trades_for_edge: int = 15      # ignore perf edge until this many trades
+
+    # Adaptive risk (bounded throttle off recent performance)
+    adaptive_risk: bool = True
+    loss_streak_throttle: int = 3      # consecutive losses before throttling
+    throttle_factor: float = 0.5       # multiply risk by this when throttled
+    drawdown_throttle: float = 0.08    # throttle once journal drawdown ≥ this×start
+    max_size_multiplier: float = 1.0   # never scale risk above base
+    min_size_multiplier: float = 0.25  # floor for the combined multiplier
+
+    # Parser self-learning queue
+    review_enabled: bool = True
+
+
+@dataclass
 class ParserConfig:
     # regex | ai | hybrid
     mode: str = "hybrid"
@@ -112,11 +136,14 @@ class BotConfig:
     mt5: MT5Config
     risk: RiskConfig
     parser: ParserConfig
+    intelligence: IntelligenceConfig
     dry_run: bool = True
     log_level: str = "INFO"
     log_dir: str = "logs"
     state_file: str = "state/active_signals.json"
     status_file: str = "state/status.json"
+    trades_file: str = "state/trades.jsonl"
+    review_file: str = "state/review_queue.jsonl"
     # Seconds; ignore messages older than this on startup catch-up.
     max_message_age: int = 120
     # Emergency kill switch file: if this path exists, no new trades are placed.
@@ -192,16 +219,37 @@ def get_config(require_secrets: bool = True) -> BotConfig:
         anthropic_model=_get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
     )
 
+    intelligence = IntelligenceConfig(
+        enabled=_get_bool("INTEL_ENABLED", True),
+        min_signal_score=_get_float("MIN_SIGNAL_SCORE", 0.45),
+        require_sl=_get_bool("REQUIRE_SL", True),
+        min_rr=_get_float("MIN_RR", 0.8),
+        require_min_rr=_get_bool("REQUIRE_MIN_RR", False),
+        max_chase_ratio=_get_float("MAX_CHASE_RATIO", 2.0),
+        min_size_factor=_get_float("MIN_SIZE_FACTOR", 0.4),
+        min_trades_for_edge=_get_int("MIN_TRADES_FOR_EDGE", 15),
+        adaptive_risk=_get_bool("ADAPTIVE_RISK", True),
+        loss_streak_throttle=_get_int("LOSS_STREAK_THROTTLE", 3),
+        throttle_factor=_get_float("THROTTLE_FACTOR", 0.5),
+        drawdown_throttle=_get_float("DRAWDOWN_THROTTLE", 0.08),
+        max_size_multiplier=_get_float("MAX_SIZE_MULTIPLIER", 1.0),
+        min_size_multiplier=_get_float("MIN_SIZE_MULTIPLIER", 0.25),
+        review_enabled=_get_bool("REVIEW_ENABLED", True),
+    )
+
     cfg = BotConfig(
         telegram=telegram,
         mt5=mt5,
         risk=risk,
         parser=parser,
+        intelligence=intelligence,
         dry_run=_get_bool("DRY_RUN", True),
         log_level=_get("LOG_LEVEL", "INFO"),
         log_dir=_get("LOG_DIR", "logs"),
         state_file=_get("STATE_FILE", "state/active_signals.json"),
         status_file=_get("STATUS_FILE", "state/status.json"),
+        trades_file=_get("TRADES_FILE", "state/trades.jsonl"),
+        review_file=_get("REVIEW_FILE", "state/review_queue.jsonl"),
         max_message_age=_get_int("MAX_MESSAGE_AGE", 120),
         emergency_stop_file=_get("EMERGENCY_STOP_FILE", ".EMERGENCY_STOP"),
     )

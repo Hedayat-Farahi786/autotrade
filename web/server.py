@@ -24,6 +24,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from bot.analytics.performance import load_records, summarize
 from bot.config import get_config
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -33,6 +34,22 @@ AUDIT_FILE = os.path.join(cfg.log_dir, "audit.jsonl")
 STATUS_FILE = cfg.status_file
 STATE_FILE = cfg.state_file
 STOP_FILE = cfg.emergency_stop_file
+TRADES_FILE = cfg.trades_file
+REVIEW_FILE = cfg.review_file
+
+
+def read_performance() -> Dict[str, Any]:
+    return summarize(load_records(TRADES_FILE))
+
+
+def read_review_count() -> int:
+    if not os.path.exists(REVIEW_FILE):
+        return 0
+    try:
+        with open(REVIEW_FILE, "r", encoding="utf-8") as fh:
+            return sum(1 for ln in fh if ln.strip())
+    except Exception:  # noqa: BLE001
+        return 0
 
 app = FastAPI(title="GTMO XAUUSD Dashboard", docs_url=None, redoc_url=None)
 
@@ -227,7 +244,19 @@ async def _startup() -> None:
 async def api_status() -> JSONResponse:
     status = read_status()
     status["emergency_stop"] = os.path.exists(STOP_FILE)
+    # Authoritative performance straight from the trade journal.
+    status.setdefault("performance", read_performance())
+    status.setdefault("review_queue", read_review_count())
     return JSONResponse(status)
+
+
+@app.get("/api/performance")
+async def api_performance() -> JSONResponse:
+    return JSONResponse({
+        "performance": read_performance(),
+        "recent": load_records(TRADES_FILE)[-20:],
+        "review_queue": read_review_count(),
+    })
 
 
 @app.get("/api/signals")
