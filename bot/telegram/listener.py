@@ -104,6 +104,41 @@ class TelegramListener:
         except Exception as exc:  # noqa: BLE001
             log.exception("on_message handler error: %s", exc)
 
+    async def connect_only(self):
+        """Connect and resolve the channel WITHOUT registering live handlers.
+
+        Used by the offline backfill/replay tool so we can read history without
+        reacting to new messages.
+        """
+
+        await self._client.start(phone=self.cfg.phone)
+        self._entity = await self._resolve_channel()
+        if self._entity is None:
+            raise RuntimeError(
+                f"Could not resolve channel '{self.cfg.channel}'."
+            )
+        return self._entity
+
+    async def iter_history(self, days: int = 3, limit: int = 5000):
+        """Yield ``(message_id, date, text, has_media)`` from recent history.
+
+        Oldest → newest within the last ``days`` days, so replaying mirrors the
+        order the bot would have seen the messages live.
+        """
+
+        import datetime as _dt
+
+        if self._entity is None:
+            await self.connect_only()
+        cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+        collected = []
+        async for msg in self._client.iter_messages(self._entity, limit=limit):
+            if msg.date and msg.date < cutoff:
+                break
+            collected.append(msg)
+        for msg in reversed(collected):  # chronological order
+            yield (msg.id, msg.date, msg.message or "", bool(getattr(msg, "media", None)))
+
     async def run_forever(self) -> None:
         """Block until disconnected/stopped, surviving transient errors."""
 
