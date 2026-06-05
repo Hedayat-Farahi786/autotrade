@@ -66,6 +66,57 @@
     </form>
   </div>
 
+  <!-- ───────────────────────── Telegram connect wizard ───────────────────── -->
+  <div class="wizard is-hidden" id="tgWizard" role="dialog" aria-modal="true">
+    <div class="wizard__card">
+      <button class="wizard__close" id="wizClose" type="button" aria-label="Close">✕</button>
+      <div class="wizard__head">
+        <span class="wizard__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M21.5 4.3 2.9 11.5c-1 .4-1 1.1-.2 1.3l4.7 1.5 1.8 5.6c.2.6.5.7 1 .2l2.6-2.4 4.7 3.5c.9.5 1.5.2 1.7-.8l3-14c.3-1.2-.5-1.8-1.4-1.6Z" fill="currentColor"/></svg>
+        </span>
+        <h2 id="wizTitle">Connect Telegram</h2>
+        <p id="wizDesc">Sign in to read your signals channel — no terminal needed.</p>
+      </div>
+      <div class="wizard__dots" id="wizDots"></div>
+
+      <div class="wizard__body">
+        <form class="wizstep" data-step="creds" id="wizCredsForm">
+          <label>API ID<input id="wizApiId" inputmode="numeric" placeholder="1234567" autocomplete="off"></label>
+          <label>API Hash<input id="wizApiHash" placeholder="0123456789abcdef…" autocomplete="off"></label>
+          <label>Phone number<input id="wizPhone" placeholder="+1 555 123 4567" autocomplete="tel"></label>
+          <a class="wizard__link" href="https://my.telegram.org/apps" target="_blank" rel="noopener">Where do I get API ID &amp; Hash? →</a>
+          <button class="wiz__btn wiz__btn--primary" type="submit"><span class="wiz__spin"></span><span>Send code</span></button>
+        </form>
+
+        <form class="wizstep is-hidden" data-step="code" id="wizCodeForm">
+          <p class="wiz__hint">Enter the login code Telegram just sent you.</p>
+          <input id="wizCode" inputmode="numeric" class="wiz__big" placeholder="1 2 3 4 5" autocomplete="one-time-code">
+          <button class="wiz__btn wiz__btn--primary" type="submit"><span class="wiz__spin"></span><span>Verify</span></button>
+        </form>
+
+        <form class="wizstep is-hidden" data-step="password" id="wizPwForm">
+          <p class="wiz__hint">Your two-factor (cloud) password.</p>
+          <input id="wizPw" type="password" class="wiz__big" placeholder="••••••••" autocomplete="current-password">
+          <button class="wiz__btn wiz__btn--primary" type="submit"><span class="wiz__spin"></span><span>Verify</span></button>
+        </form>
+
+        <div class="wizstep is-hidden" data-step="channel">
+          <p class="wiz__hint" id="wizMe">Choose the channel to listen to:</p>
+          <input id="wizSearch" class="wiz__search" placeholder="Search channels…" autocomplete="off">
+          <div class="wizlist" id="wizList"><div class="wiz__loading">Loading your channels…</div></div>
+        </div>
+
+        <div class="wizstep is-hidden" data-step="ready">
+          <div class="wiz__ready" aria-hidden="true">✓</div>
+          <p class="wiz__hint" id="wizReady">Connected and ready.</p>
+          <button class="wiz__btn wiz__btn--primary" id="wizStart" type="button"><span class="wiz__spin"></span><span>Start the bot</span></button>
+          <button class="wiz__btn wiz__btn--ghost" id="wizChangeChan" type="button">Change channel</button>
+        </div>
+      </div>
+      <small class="wizard__err" id="wizErr"></small>
+    </div>
+  </div>
+
   <!-- ───────────────────────── Top bar ───────────────────────── -->
   <header class="topbar">
     <div class="brand">

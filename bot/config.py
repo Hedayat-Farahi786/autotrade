@@ -198,6 +198,40 @@ class BotConfig:
 
 _cached: BotConfig | None = None
 
+RUNTIME_TELEGRAM_FILE = "state/telegram.json"
+
+
+def _load_runtime_telegram(path: str | None = None) -> dict:
+    """Read UI-saved Telegram settings (api_id/api_hash/phone/channel/session)."""
+
+    import json
+
+    path = path or RUNTIME_TELEGRAM_FILE
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_runtime_telegram(updates: dict, path: str | None = None) -> dict:
+    """Merge and persist UI-saved Telegram settings; returns the merged dict."""
+
+    import json
+    import os
+
+    path = path or RUNTIME_TELEGRAM_FILE
+    data = _load_runtime_telegram(path)
+    data.update({k: v for k, v in updates.items() if v is not None})
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    os.replace(tmp, path)
+    reset_cache()  # so the next get_config() picks up new values
+    return data
+
 
 def get_config(require_secrets: bool = True) -> BotConfig:
     """Build (and cache) the :class:`BotConfig` from the environment."""
@@ -206,9 +240,12 @@ def get_config(require_secrets: bool = True) -> BotConfig:
     if _cached is not None:
         return _cached
 
-    api_id_raw = _get("TELEGRAM_API_ID")
-    api_hash = _get("TELEGRAM_API_HASH")
-    channel = _get("TELEGRAM_CHANNEL", "")
+    # UI-saved Telegram settings (written by the in-app login wizard). Env vars
+    # take precedence; this file fills in anything not set in the environment.
+    rt = _load_runtime_telegram(_get("TELEGRAM_RUNTIME_FILE", RUNTIME_TELEGRAM_FILE))
+    api_id_raw = _get("TELEGRAM_API_ID") or (str(rt["api_id"]) if rt.get("api_id") else None)
+    api_hash = _get("TELEGRAM_API_HASH") or rt.get("api_hash")
+    channel = _get("TELEGRAM_CHANNEL", "") or rt.get("channel", "")
 
     if require_secrets:
         missing = [
@@ -228,9 +265,9 @@ def get_config(require_secrets: bool = True) -> BotConfig:
     telegram = TelegramConfig(
         api_id=int(api_id_raw) if api_id_raw else 0,
         api_hash=api_hash or "",
-        session_name=_get("TELEGRAM_SESSION", "gtmo_session"),
+        session_name=_get("TELEGRAM_SESSION") or rt.get("session") or "gtmo_session",
         channel=channel or "",
-        phone=_get("TELEGRAM_PHONE"),
+        phone=_get("TELEGRAM_PHONE") or rt.get("phone"),
     )
 
     overrides = _get("MT5_SYMBOL_OVERRIDES", "")

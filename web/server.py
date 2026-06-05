@@ -428,6 +428,83 @@ class BotManager:
 bot_manager = BotManager()
 
 
+# --------------------------------------------------------------------------- #
+#  In-app Telegram login (phone → code → 2FA → pick channel)
+# --------------------------------------------------------------------------- #
+from web.telegram_login import TelegramLoginError, TelegramLoginManager  # noqa: E402
+
+tg_login = TelegramLoginManager(lambda: get_config(require_secrets=False))
+
+
+async def _tg(coro):
+    try:
+        return JSONResponse(await coro)
+    except TelegramLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface Telegram errors cleanly
+        raise HTTPException(status_code=400, detail=_friendly_tg_error(exc)) from exc
+
+
+def _friendly_tg_error(exc: Exception) -> str:
+    name = type(exc).__name__
+    msg = str(exc)
+    mapping = {
+        "PhoneCodeInvalidError": "That code is incorrect — please re-check it.",
+        "PhoneCodeExpiredError": "The code expired — request a new one.",
+        "PhoneNumberInvalidError": "That phone number looks invalid.",
+        "PasswordHashInvalidError": "Incorrect 2FA password.",
+        "FloodWaitError": "Too many attempts — wait a bit and try again.",
+        "ApiIdInvalidError": "API ID / API Hash are invalid.",
+    }
+    return mapping.get(name, msg or name)
+
+
+@app.get("/api/telegram/state", dependencies=[Depends(require_token)])
+async def api_tg_state() -> JSONResponse:
+    return await _tg(tg_login.state())
+
+
+@app.post("/api/telegram/connect", dependencies=[Depends(require_token)])
+async def api_tg_connect(payload: dict[str, Any]) -> JSONResponse:
+    return await _tg(tg_login.connect(payload.get("api_id"),
+                                      payload.get("api_hash"),
+                                      payload.get("phone")))
+
+
+@app.post("/api/telegram/code", dependencies=[Depends(require_token)])
+async def api_tg_code(payload: dict[str, Any]) -> JSONResponse:
+    return await _tg(tg_login.submit_code(payload.get("code")))
+
+
+@app.post("/api/telegram/password", dependencies=[Depends(require_token)])
+async def api_tg_password(payload: dict[str, Any]) -> JSONResponse:
+    return await _tg(tg_login.submit_password(payload.get("password")))
+
+
+@app.get("/api/telegram/dialogs", dependencies=[Depends(require_token)])
+async def api_tg_dialogs() -> JSONResponse:
+    return JSONResponse({"dialogs": await _dialogs_or_raise()})
+
+
+async def _dialogs_or_raise():
+    try:
+        return await tg_login.dialogs()
+    except TelegramLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=_friendly_tg_error(exc)) from exc
+
+
+@app.post("/api/telegram/select-channel", dependencies=[Depends(require_token)])
+async def api_tg_select(payload: dict[str, Any]) -> JSONResponse:
+    return await _tg(tg_login.select_channel(payload.get("channel", "")))
+
+
+@app.post("/api/telegram/logout", dependencies=[Depends(require_token)])
+async def api_tg_logout() -> JSONResponse:
+    return await _tg(tg_login.logout())
+
+
 @app.get("/api/bot/status", dependencies=[Depends(require_token)])
 async def api_bot_status() -> JSONResponse:
     return JSONResponse(bot_manager.state())

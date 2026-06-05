@@ -23,6 +23,13 @@ positions, a streaming signal feed, trade history, and one-tap controls.
 |---|---|---|
 | ![connect](docs/screenshots/01-connect.png) | ![desktop](docs/screenshots/dashboard-desktop.png) | ![mobile](docs/screenshots/dashboard-mobile.png) |
 
+**Connect Telegram from the UI** — no terminal. A wizard handles phone → login
+code → 2FA → pick your channel:
+
+| Credentials | Login code | Pick channel |
+|---|---|---|
+| ![creds](docs/screenshots/tg-1-credentials.png) | ![code](docs/screenshots/tg-2-code.png) | ![channel](docs/screenshots/tg-3-channel.png) |
+
 **Try the full live experience with no API keys** — open the dashboard and click
 **Start live demo**; a built-in simulator streams a realistic session (connecting
 → live trades → animated P&L → growing equity curve):
@@ -387,12 +394,17 @@ covers every API route + token auth.
 Everything runs key-free in simulation. To connect the real services with
 confidence, follow this order:
 
-1. **Configure** — `cp .env.example .env` and fill in Telegram (`TELEGRAM_API_ID/
-   HASH/CHANNEL/PHONE`), MT5 (`MT5_LOGIN/PASSWORD/SERVER`), and optionally
-   `GEMINI_API_KEY` + `PARSER_MODE=hybrid`. No AI key → automatic regex fallback.
-2. **First Telegram login** — `python main.py` once; enter the phone code (and
-   2FA). This creates the `.session` file so future runs are non-interactive.
-   (Run MT5 on a **Windows host/VPS** — the `MetaTrader5` package is Windows-only.)
+1. **Configure** — optional. You can either `cp .env.example .env` and fill in
+   Telegram + MT5 (+ `GEMINI_API_KEY` for AI), **or** connect Telegram entirely
+   from the dashboard (next step). No AI key → automatic regex fallback.
+2. **Connect Telegram from the UI** — `python main.py --web`, open the dashboard
+   and click **Connect & start bot**. A wizard walks you through it with no
+   terminal: **API ID/Hash + phone → login code → (2FA password) → pick your
+   channel** from your real channel list. Credentials and the chosen channel are
+   saved (`state/telegram.json`) and a `.session` file is created, so the bot
+   then starts non-interactively. *(Prefer the CLI? `python main.py` once also
+   does the phone-code login.)* Run MT5 on a **Windows host/VPS** — the
+   `MetaTrader5` package is Windows-only.
 3. **Preflight** — `python main.py --doctor` checks config, AI key, the **real
    Telegram connection** (via the session) and the **real MT5 connection**
    (symbol + balance). Everything should be PASS.

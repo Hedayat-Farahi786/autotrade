@@ -522,7 +522,153 @@
   }
 
   $("#startDemoBtn").addEventListener("click", () => startBot("demo"));
-  $("#startRealBtn").addEventListener("click", () => startBot("real"));
+  $("#startRealBtn").addEventListener("click", () => Wizard.open());
+
+  /* ----------------------------------------------- Telegram connect wizard */
+  const Wizard = (() => {
+    const wiz = $("#tgWizard");
+    let dialogs = [], me = null;
+
+    const err = (m) => {
+      const e = $("#wizErr"); e.textContent = m || "";
+      if (m) { e.classList.remove("show"); void e.offsetWidth; e.classList.add("show"); }
+    };
+    const busy = (btn, on) => { if (btn) { btn.classList.toggle("is-busy", on); btn.disabled = on; } };
+
+    function dots(cur) {
+      const order = ["creds", "code", "channel", "ready"];
+      const key = cur === "password" ? "code" : cur;
+      const idx = order.indexOf(key);
+      $("#wizDots").innerHTML = order.map((s, i) =>
+        `<i class="${i < idx ? "is-done" : ""} ${i === idx ? "is-active" : ""}"></i>`).join("");
+    }
+    function show(step) {
+      wiz.querySelectorAll(".wizstep").forEach((s) =>
+        s.classList.toggle("is-hidden", s.dataset.step !== step));
+      dots(step); err("");
+      const inp = wiz.querySelector(`.wizstep[data-step="${step}"] input`);
+      if (inp) setTimeout(() => inp.focus(), 60);
+    }
+
+    async function open() {
+      wiz.classList.remove("is-hidden");
+      err(""); show("creds");
+      try {
+        const st = await authedFetch("/api/telegram/state").then((r) => r.json());
+        if (!st.telethon) { err("telethon is not installed on the server — `pip install telethon`."); return; }
+        if (st.phone) $("#wizPhone").value = st.phone;
+        if (st.authorized) { me = st.me; st.channel ? gotoReady(st.channel) : gotoChannel(); }
+      } catch (e) { /* stay on creds */ }
+    }
+    function close() { wiz.classList.add("is-hidden"); }
+
+    // Step 1 — credentials → send code
+    $("#wizCredsForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.submitter || $("#wizCredsForm button");
+      const body = {
+        api_id: $("#wizApiId").value.trim(),
+        api_hash: $("#wizApiHash").value.trim(),
+        phone: $("#wizPhone").value.trim(),
+      };
+      if (!body.api_id || !body.api_hash || !body.phone) { err("Fill in all three fields."); return; }
+      busy(btn, true);
+      try {
+        const r = await post("/api/telegram/connect", body);
+        if (r.authorized) { me = r.me; gotoChannel(); }
+        else show("code");
+      } catch (ex) { err(ex.message); } finally { busy(btn, false); }
+    });
+
+    // Step 2 — code
+    $("#wizCodeForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.submitter; busy(btn, true);
+      try {
+        const r = await post("/api/telegram/code", { code: $("#wizCode").value });
+        if (r.step === "password") show("password");
+        else { me = r.me; gotoChannel(); }
+      } catch (ex) { err(ex.message); } finally { busy(btn, false); }
+    });
+
+    // Step 3 — 2FA password
+    $("#wizPwForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.submitter; busy(btn, true);
+      try {
+        const r = await post("/api/telegram/password", { password: $("#wizPw").value });
+        me = r.me; gotoChannel();
+      } catch (ex) { err(ex.message); } finally { busy(btn, false); }
+    });
+
+    // Step 4 — channel picker
+    async function gotoChannel() {
+      show("channel");
+      $("#wizMe").textContent = me
+        ? `Connected as @${me.username || me.first_name || "you"} — choose a channel:`
+        : "Choose the channel to listen to:";
+      $("#wizList").innerHTML = '<div class="wiz__loading">Loading your channels…</div>';
+      try {
+        const r = await authedFetch("/api/telegram/dialogs").then((x) => x.json());
+        dialogs = r.dialogs || [];
+        renderDialogs("");
+      } catch (e) { $("#wizList").innerHTML = '<div class="wiz__loading">Could not load channels.</div>'; }
+    }
+    function renderDialogs(filter) {
+      const f = (filter || "").toLowerCase();
+      const items = dialogs.filter((d) => !f ||
+        (d.title || "").toLowerCase().includes(f) || (d.username || "").toLowerCase().includes(f));
+      const list = $("#wizList");
+      if (!items.length) { list.innerHTML = '<div class="wiz__loading">No channels found.</div>'; return; }
+      list.innerHTML = items.map((d) => `
+        <div class="wizitem" data-peer="${esc(d.peer)}" data-title="${esc(d.title)}">
+          <span class="wizitem__av">${esc((d.title || "?").slice(0, 1).toUpperCase())}</span>
+          <span class="wizitem__main">
+            <span class="wizitem__title">${esc(d.title)}</span>
+            <span class="wizitem__meta">${d.username ? "@" + esc(d.username) : esc(d.type)}${d.participants ? " · " + fInt(d.participants) + " members" : ""}</span>
+          </span>
+        </div>`).join("");
+      list.querySelectorAll(".wizitem").forEach((el) =>
+        el.addEventListener("click", () => selectChannel(el.dataset.peer, el.dataset.title)));
+    }
+    $("#wizSearch").addEventListener("input", (e) => renderDialogs(e.target.value));
+
+    async function selectChannel(peer, title) {
+      try {
+        await post("/api/telegram/select-channel", { channel: peer });
+        gotoReady(title || peer);
+      } catch (ex) { err(ex.message); }
+    }
+
+    // Step 5 — ready → start the real bot
+    function gotoReady(channel) {
+      show("ready");
+      $("#wizReady").innerHTML = me
+        ? `Connected as <b>@${esc(me.username || me.first_name || "you")}</b><br>Listening to <b>${esc(channel)}</b>`
+        : `Listening to <b>${esc(channel)}</b>`;
+    }
+    $("#wizChangeChan").addEventListener("click", gotoChannel);
+    $("#wizStart").addEventListener("click", async (e) => {
+      busy(e.currentTarget, true);
+      close();
+      await startBot("real");
+    });
+
+    // Helpers + close interactions
+    async function post(url, body) {
+      const r = await authedFetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || "Request failed");
+      return data;
+    }
+    $("#wizClose").addEventListener("click", close);
+    wiz.addEventListener("click", (e) => { if (e.target === wiz) close(); });
+
+    return { open, close };
+  })();
 
   $("#powerBtn").addEventListener("click", async () => {
     if (!confirm("Stop the bot?")) return;

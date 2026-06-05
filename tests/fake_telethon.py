@@ -46,11 +46,16 @@ class FakeEvent:
 
 
 class _Entity:
-    def __init__(self, title="GTMO VIP", username=None, id=-1001):
+    def __init__(self, title="GTMO VIP", username=None, id=-1001,
+                 broadcast=True, megagroup=False, participants_count=30618):
         self.title = title
         self.username = username
         self.id = id
         self.first_name = title
+        self.broadcast = broadcast
+        self.megagroup = megagroup
+        self.participants_count = participants_count
+        self.phone = None
 
 
 # --- fake client ----------------------------------------------------------
@@ -68,11 +73,49 @@ class FakeTelegramClient:
         self.entities = {}          # target → entity
         self.dialogs: list = []
         self.raise_on_get_entity = False
+        # Login-flow simulation knobs.
+        self._authorized = False
+        self.require_2fa = False
+        self.valid_code = "12345"
+        self.valid_password = "pw"
+        self.code_sent_to = None
 
     async def start(self, phone=None):
         self.started = True
         self.start_phone = phone
+        self._authorized = True
         return self
+
+    # --- login flow ------------------------------------------------------
+    async def is_user_authorized(self):
+        return self._authorized
+
+    async def send_code_request(self, phone):
+        self.code_sent_to = phone
+        return types.SimpleNamespace(phone_code_hash="hash123")
+
+    async def sign_in(self, phone=None, code=None, phone_code_hash=None,
+                      password=None):
+        from telethon.errors import (
+            PasswordHashInvalidError,
+            PhoneCodeInvalidError,
+            SessionPasswordNeededError,
+        )
+        if password is not None:
+            if password != self.valid_password:
+                raise PasswordHashInvalidError()
+            self._authorized = True
+            return self.me
+        if str(code) != self.valid_code:
+            raise PhoneCodeInvalidError()
+        if self.require_2fa:
+            raise SessionPasswordNeededError()
+        self._authorized = True
+        return self.me
+
+    async def log_out(self):
+        self._authorized = False
+        return True
 
     async def get_me(self):
         return self.me
@@ -84,7 +127,7 @@ class FakeTelegramClient:
             return self.entities[target]
         return _Entity(title=str(target), id=-1002)
 
-    async def iter_dialogs(self):
+    async def iter_dialogs(self, limit=None):
         for d in self.dialogs:
             yield types.SimpleNamespace(entity=d)
 
@@ -136,7 +179,27 @@ def install(client_factory=None):
         def __init__(self, seconds=1):
             self.seconds = seconds
 
+    class SessionPasswordNeededError(Exception):
+        pass
+
+    class PhoneCodeInvalidError(Exception):
+        pass
+
+    class PhoneCodeExpiredError(Exception):
+        pass
+
+    class PasswordHashInvalidError(Exception):
+        pass
+
+    class PhoneNumberInvalidError(Exception):
+        pass
+
     errors.FloodWaitError = FloodWaitError
+    errors.SessionPasswordNeededError = SessionPasswordNeededError
+    errors.PhoneCodeInvalidError = PhoneCodeInvalidError
+    errors.PhoneCodeExpiredError = PhoneCodeExpiredError
+    errors.PasswordHashInvalidError = PasswordHashInvalidError
+    errors.PhoneNumberInvalidError = PhoneNumberInvalidError
 
     tl = types.ModuleType("telethon.tl")
     tl_types = types.ModuleType("telethon.tl.types")
