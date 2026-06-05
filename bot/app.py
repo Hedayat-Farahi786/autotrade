@@ -92,9 +92,14 @@ class TradingBot:
         audit("bot_start", dry_run=self.cfg.dry_run,
               parser_mode=self.cfg.parser.mode, provider=self.cfg.parser.provider)
 
+        # Write an initial "connecting" heartbeat so the dashboard animates the
+        # boot sequence as each subsystem comes online.
+        self._write_boot(telegram=False, mt5=False, connecting=True)
+
         if not await self.executor.connect():
             raise RuntimeError("Failed to connect to MT5.")
         self.risk.start_day(await self.executor.account_balance())
+        self._write_boot(telegram=False, mt5=True, connecting=True)
 
         # Crash recovery: reconcile persisted state with the broker.
         try:
@@ -104,6 +109,7 @@ class TradingBot:
             log.warning("Startup reconciliation failed: %s", exc)
 
         await self.listener.start()
+        self._write_boot(telegram=True, mt5=True, connecting=False)
 
         # Telegram alerts + remote control.
         if self.cfg.control.alerts_enabled or self.cfg.control.telegram_control_enabled:
@@ -214,7 +220,29 @@ class TradingBot:
             "review_queue": self.review.count,
             "intel_enabled": self.cfg.intelligence.enabled,
             "trailing_enabled": self.cfg.execution.trailing_enabled,
+            "bot_running": True,
+            "connecting": False,
         }
+        self._save_status(snapshot)
+
+    def _write_boot(self, *, telegram: bool, mt5: bool, connecting: bool) -> None:
+        """Lightweight status write during startup (before full connect)."""
+
+        self._save_status({
+            "ts": round(time.time(), 3),
+            "dry_run": self.cfg.dry_run,
+            "parser_mode": self.cfg.parser.mode,
+            "provider": self.cfg.parser.provider,
+            "symbol": self.cfg.mt5.symbol,
+            "telegram_connected": telegram,
+            "mt5_connected": mt5,
+            "connecting": connecting,
+            "bot_running": True,
+            "balance": 0.0, "equity": 0.0, "open_signals": 0, "open_positions": 0,
+            "performance": self.tracker.summary(),
+        })
+
+    def _save_status(self, snapshot: dict) -> None:
         path = self.cfg.status_file
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         tmp = path + ".tmp"

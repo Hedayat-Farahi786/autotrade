@@ -12,6 +12,47 @@
 <body data-state="loading">
   <div class="grain" aria-hidden="true"></div>
 
+  <!-- ───────────────────────── Boot / connection ───────────────────────── -->
+  <div class="boot" id="bootScreen">
+    <div class="boot__card">
+      <span class="boot__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30">
+          <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M12 7.5l4 2.25v4.5L12 16.5l-4-2.25v-4.5z" fill="currentColor" opacity="0.16"/>
+        </svg>
+      </span>
+      <h2>GTMO</h2>
+      <p class="boot__sub" id="bootSub">XAUUSD auto-execution</p>
+
+      <ul class="connlist" id="connList">
+        <li class="connrow" data-key="telegram">
+          <span class="connrow__dot"></span>
+          <span class="connrow__label">Telegram</span>
+          <span class="connrow__state">Idle</span>
+        </li>
+        <li class="connrow" data-key="mt5">
+          <span class="connrow__dot"></span>
+          <span class="connrow__label">MetaTrader 5</span>
+          <span class="connrow__state">Idle</span>
+        </li>
+        <li class="connrow" data-key="engine">
+          <span class="connrow__dot"></span>
+          <span class="connrow__label">Engine &amp; parser</span>
+          <span class="connrow__state">Idle</span>
+        </li>
+      </ul>
+
+      <div class="boot__actions" id="bootActions">
+        <button class="boot__btn boot__btn--primary" id="startDemoBtn" type="button">
+          <span class="boot__spinner" aria-hidden="true"></span>
+          <span>Start live demo</span>
+        </button>
+        <button class="boot__btn" id="startRealBtn" type="button">Connect &amp; start bot</button>
+      </div>
+      <small class="boot__note" id="bootNote">No keys needed for the demo — experience the bot live.</small>
+    </div>
+  </div>
+
   <!-- ───────────────────────── Login gate ───────────────────────── -->
   <div class="login is-hidden" id="loginGate">
     <form class="login__card" id="loginForm">
@@ -41,6 +82,9 @@
     </div>
 
     <div class="status-cluster">
+      <span class="run-chip is-hidden" id="runChip" title="Bot status">
+        <span class="run-chip__dot"></span><span id="runLabel">Running</span>
+      </span>
       <span class="mode-pill" id="modePill" data-mode="">
         <span class="mode-pill__dot"></span>
         <span id="modeLabel">—</span>
@@ -165,6 +209,10 @@
       <button class="ctl ctl--warn" id="closeAllBtn" type="button" title="Close all positions">
         <span class="ctl__icon">⛌</span>
         <span class="ctl__label">Close all</span>
+      </button>
+      <button class="ctl ctl--power is-hidden" id="powerBtn" type="button" title="Stop the bot">
+        <span class="ctl__icon">⏻</span>
+        <span class="ctl__label">Stop bot</span>
       </button>
       <button class="estop" id="estopBtn" type="button" aria-pressed="false">
         <span class="estop__ring"></span>

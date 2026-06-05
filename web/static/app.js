@@ -60,14 +60,73 @@
     node.classList.add("flash");
   };
 
+  /* ----------------------------------------------- animated numbers */
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  const _anim = new WeakMap();
+
+  // Formatters
+  const fMoney = (v) => Number(v).toLocaleString("en-US",
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fSigned = (v) => (v >= 0 ? "+" : "−") + fMoney(Math.abs(v));
+  const fInt = (v) => String(Math.round(v));
+  const fPct = (v) => Math.round(v) + "%";
+  const fR = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + "R";
+  const fFloat = (v) => v.toFixed(2);
+
+  function animateNumber(node, target, format) {
+    if (!node) return;
+    if (target == null || isNaN(target)) { node.textContent = "—"; _anim.delete(node); return; }
+    const prev = _anim.get(node);
+    const from = prev ? prev.value : target;
+    if (reduceMotion || from === target) {
+      node.textContent = format(target);
+      _anim.set(node, { value: target });
+      if (from !== target) flashDir(node, target >= from);
+      return;
+    }
+    if (prev && prev.raf) cancelAnimationFrame(prev.raf);
+    flashDir(node, target >= from);
+    const dur = 650, t0 = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      node.textContent = format(from + (target - from) * easeOutCubic(t));
+      if (t < 1) {
+        _anim.set(node, { value: target, raf: requestAnimationFrame(step) });
+      } else {
+        node.textContent = format(target);
+        _anim.set(node, { value: target });
+      }
+    };
+    _anim.set(node, { value: target, raf: requestAnimationFrame(step) });
+  }
+
+  function flashDir(node, up) {
+    node.classList.remove("tick-up", "tick-down");
+    void node.offsetWidth;
+    node.classList.add(up ? "tick-up" : "tick-down");
+  }
+
+  const setStat = (el, target, format) => {
+    if (!el) return;
+    animateNumber(el.querySelector("[data-value]") || el, target, format);
+  };
+  const setPerf = (key, target, format) =>
+    animateNumber(document.querySelector(`[data-perf="${key}"]`), target, format);
+
   /* --------------------------------------------------------------- status */
   function renderStatus(s) {
-    document.body.dataset.state = s && s.online ? "ready" : "offline";
+    // "up" = a bot is genuinely alive (fresh heartbeat, not stopped).
+    const fresh = s && s.ts ? (Date.now() / 1000 - s.ts < 15) : !!(s && s.online);
+    const up = !!(s && s.online && fresh && s.bot_running !== false);
+    if (s) s = Object.assign({}, s, { online: up });
+
+    document.body.dataset.state = up ? "ready" : "offline";
 
     const live = s && s.dry_run === false;
     const pill = $("#modePill");
-    pill.dataset.mode = !s || !s.online ? "" : live ? "live" : "dry";
-    $("#modeLabel").textContent = !s || !s.online
+    pill.dataset.mode = !up ? "" : live ? "live" : "dry";
+    $("#modeLabel").textContent = !up
       ? "Offline" : live ? "Live" : "Dry-run";
 
     const dry = $("#dryFlag");
@@ -81,17 +140,19 @@
       ? "No heartbeat — start the bot"
       : `${s.parser_mode || "?"} · ${s.provider || ""} · ${s.symbol || "XAUUSD"}`;
 
+    // Drive the boot/connection screen + running indicator.
+    updateConnection(s);
+
     if (!s || !s.online) return;
 
-    setValue($("#statBalance"), fmtMoney(s.balance));
-    setValue($("#statEquity"), fmtMoney(s.equity));
+    setStat($("#statBalance"), s.balance, fMoney);
+    setStat($("#statEquity"), s.equity, fMoney);
     $("#symbolTag").textContent = s.symbol || "";
 
     // Daily P/L (equity − start balance is unknown; use realized loss + float).
     const start = s.daily_start_balance || s.balance || 0;
     const pl = (s.equity != null && start) ? s.equity - start : -(s.daily_loss || 0);
-    const plEl = $("#statPnl");
-    setValue(plEl, (pl >= 0 ? "+" : "−") + fmtMoney(Math.abs(pl)));
+    setStat($("#statPnl"), pl, fSigned);
     const sub = $("#pnlBar");
     // risk bar = how much of the daily loss budget is used
     const budget = (s.daily_start_balance || 0) * (s.max_daily_loss || 0.05);
@@ -100,7 +161,7 @@
     sub.querySelector("i").style.width = used + "%";
     bar.classList.toggle("danger", s.halted);
 
-    setValue($("#statSignals"), fmtNum(s.open_signals || 0));
+    setStat($("#statSignals"), s.open_signals || 0, fInt);
     $("#positionsHint").textContent = `${s.open_positions || 0} position${(s.open_positions || 0) === 1 ? "" : "s"}`;
 
     if (s.performance) renderPerformance(s.performance);
@@ -118,32 +179,37 @@
   /* ----------------------------------------------------------- performance */
   function renderPerformance(p) {
     if (!p) return;
-    const set = (key, text, dir) => {
+    const has = p.trades > 0;
+    const tone = (key, on) => {
       const el = document.querySelector(`[data-perf="${key}"]`);
-      if (!el) return;
-      if (el.textContent !== String(text)) {
-        el.textContent = text;
-        el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
-      }
-      el.classList.toggle("up", dir === 1);
-      el.classList.toggle("down", dir === -1);
+      if (el) { el.classList.toggle("up", on === 1); el.classList.toggle("down", on === -1); }
     };
-    set("trades", p.trades ?? 0);
-    set("win_rate", p.trades ? Math.round((p.win_rate || 0) * 100) + "%" : "—");
-    set("profit_factor", p.profit_factor != null ? p.profit_factor : "—",
-        p.profit_factor >= 1 ? 1 : (p.trades ? -1 : 0));
-    const exp = p.expectancy || 0;
-    set("expectancy", p.trades ? (exp >= 0 ? "+" : "−") + fmtMoney(Math.abs(exp)) : "—",
-        p.trades ? (exp >= 0 ? 1 : -1) : 0);
-    set("avg_r", p.avg_r != null ? (p.avg_r >= 0 ? "+" : "") + p.avg_r + "R" : "—",
-        p.avg_r > 0 ? 1 : (p.avg_r < 0 ? -1 : 0));
-    const net = p.net_profit || 0;
-    set("net_profit", p.trades ? (net >= 0 ? "+" : "−") + fmtMoney(Math.abs(net)) : "—",
-        p.trades ? (net >= 0 ? 1 : -1) : 0);
-    set("max_drawdown", p.trades ? fmtMoney(p.max_drawdown || 0) : "—");
+    const dash = (key) => { const el = document.querySelector(`[data-perf="${key}"]`);
+      if (el) { el.textContent = "—"; _anim.delete(el); } };
+
+    setPerf("trades", p.trades ?? 0, fInt);
+    if (has) setPerf("win_rate", (p.win_rate || 0) * 100, fPct); else dash("win_rate");
+
+    if (p.profit_factor != null) { setPerf("profit_factor", p.profit_factor, fFloat);
+      tone("profit_factor", p.profit_factor >= 1 ? 1 : -1); } else dash("profit_factor");
+
+    if (has) { setPerf("expectancy", p.expectancy || 0, fSigned);
+      tone("expectancy", (p.expectancy || 0) >= 0 ? 1 : -1); } else dash("expectancy");
+
+    if (p.avg_r != null) { setPerf("avg_r", p.avg_r, fR);
+      tone("avg_r", p.avg_r >= 0 ? 1 : -1); } else dash("avg_r");
+
+    if (has) { setPerf("net_profit", p.net_profit || 0, fSigned);
+      tone("net_profit", (p.net_profit || 0) >= 0 ? 1 : -1); } else dash("net_profit");
+
+    if (has) setPerf("max_drawdown", p.max_drawdown || 0, fMoney); else dash("max_drawdown");
+
     const st = p.streak || 0;
-    set("streak", st === 0 ? "—" : (st > 0 ? `${st}W` : `${-st}L`),
-        st > 0 ? 1 : (st < 0 ? -1 : 0));
+    const stEl = document.querySelector('[data-perf="streak"]');
+    if (stEl) {
+      stEl.textContent = st === 0 ? "—" : (st > 0 ? `${st}W` : `${-st}L`);
+      stEl.classList.toggle("up", st > 0); stEl.classList.toggle("down", st < 0);
+    }
   }
 
   function renderReview(n) {
@@ -370,6 +436,104 @@
     items.slice(-MAX_FEED).forEach((it) => addFeed(it, true));
   }
 
+  /* --------------------------------------------------- connection / boot */
+  let bootDismissed = false;
+  let starting = false;
+
+  function setConnRow(key, state) {
+    const row = document.querySelector(`.connrow[data-key="${key}"]`);
+    if (!row) return;
+    row.classList.toggle("is-connecting", state === "connecting");
+    row.classList.toggle("is-on", state === "on");
+    const label = { idle: "Idle", connecting: "Connecting", on: "Connected" }[state];
+    row.querySelector(".connrow__state").textContent = label;
+  }
+
+  function updateConnection(s) {
+    const online = !!(s && s.online);
+    const tg = !!(s && s.telegram_connected);
+    const mt5 = !!(s && s.mt5_connected);
+    const running = online || starting;
+    const connectingPhase = starting || (s && s.connecting);
+
+    setConnRow("telegram", tg ? "on" : (running ? "connecting" : "idle"));
+    setConnRow("mt5", mt5 ? "on" : (running && tg ? "connecting" : (running ? "idle" : "idle")));
+    setConnRow("engine", online ? "on" : (running ? "connecting" : "idle"));
+
+    // Running chip in the top bar.
+    const chip = $("#runChip");
+    if (running) {
+      chip.classList.remove("is-hidden");
+      chip.dataset.mode = connectingPhase && !(tg && mt5) ? "connecting" : "live";
+      $("#runLabel").textContent = (s && s.demo) ? "Demo live"
+        : connectingPhase && !(tg && mt5) ? "Connecting" : "Running";
+    } else {
+      chip.classList.add("is-hidden");
+    }
+    $("#powerBtn").classList.toggle("is-hidden", !running);
+
+    // Boot screen: hide once fully connected; show when nothing is running.
+    const boot = $("#bootScreen");
+    const fullyUp = online && tg && mt5;
+    if (fullyUp) {
+      if (!bootDismissed) { bootDismissed = true; boot.classList.add("is-gone"); }
+    } else if (!running) {
+      bootDismissed = false;
+      boot.classList.remove("is-gone");
+      $("#bootActions").style.display = "";
+      $("#bootSub").textContent = "XAUUSD auto-execution";
+      resetBootButtons();
+    } else {
+      // mid-connection: keep boot visible with the live checklist.
+      boot.classList.remove("is-gone");
+      $("#bootSub").textContent = "Establishing connections…";
+      $("#bootActions").style.display = "none";
+    }
+  }
+
+  function resetBootButtons() {
+    starting = false;
+    ["startDemoBtn", "startRealBtn"].forEach((id) => {
+      const b = $("#" + id); b.classList.remove("is-busy"); b.disabled = false;
+    });
+  }
+
+  async function startBot(mode) {
+    if (starting) return;
+    starting = true;
+    const btn = mode === "demo" ? $("#startDemoBtn") : $("#startRealBtn");
+    btn.classList.add("is-busy");
+    $("#startDemoBtn").disabled = $("#startRealBtn").disabled = true;
+    setConnRow("engine", "connecting");
+    setConnRow("telegram", "connecting");
+    try {
+      const r = await authedFetch("/api/bot/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (!r.ok) throw new Error("start failed");
+      $("#bootActions").style.display = "none";
+      $("#bootSub").textContent = "Establishing connections…";
+      toast(mode === "demo" ? "Starting live demo…" : "Connecting to Telegram & MT5…");
+    } catch (e) {
+      resetBootButtons();
+      toast("Could not start the bot");
+    }
+  }
+
+  $("#startDemoBtn").addEventListener("click", () => startBot("demo"));
+  $("#startRealBtn").addEventListener("click", () => startBot("real"));
+
+  $("#powerBtn").addEventListener("click", async () => {
+    if (!confirm("Stop the bot?")) return;
+    try {
+      await authedFetch("/api/bot/stop", { method: "POST" });
+      toast("Bot stopped");
+      starting = false; bootDismissed = false;
+      renderStatus({ online: false });
+    } catch (e) { toast("Action failed"); }
+  });
+
   /* -------------------------------------------------------- emergency stop */
   let estopOn = false;
   function setEstop(on) {
@@ -480,10 +644,14 @@
           renderSignals(msg.signals || []);
           refreshPerformance();  // a position change likely closed a trade
           break;
-        case "feed": addFeed(msg.item, true); break;
+        case "feed":
+          addFeed(msg.item, true);
+          if (msg.item && msg.item.kind === "action") refreshPerformance();
+          break;
         case "feed_snapshot": renderFeedSnapshot(msg.feed || []); break;
         case "emergency": setEstop(!!msg.enabled); break;
         case "paused": setPaused(!!msg.enabled); break;
+        case "bot": if (msg.state && !msg.state.running) { starting = false; bootDismissed = false; } break;
       }
     };
     ws.onclose = () => {

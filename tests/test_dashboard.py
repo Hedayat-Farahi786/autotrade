@@ -78,6 +78,45 @@ def test_static_index_served(client):
     assert r.status_code == 200 and "GTMO" in r.text
 
 
+def test_bot_lifecycle_demo(tmp_path, monkeypatch):
+    import time as _t
+
+    # Point the demo bot's artifacts at the temp dir too.
+    import web.sim_bot as sim
+    status = str(tmp_path / "status.json")
+    monkeypatch.setattr(sim._cfg, "status_file", status)
+    monkeypatch.setattr(sim._cfg, "trades_file", str(tmp_path / "trades.jsonl"))
+    monkeypatch.setattr(sim._cfg, "state_file", str(tmp_path / "signals.json"))
+    monkeypatch.setattr(sim._cfg, "review_file", str(tmp_path / "review.jsonl"))
+    monkeypatch.setattr(sim._cfg, "log_dir", str(tmp_path))
+    # The server must read the same status file the demo bot writes.
+    monkeypatch.setattr(srv, "STATUS_FILE", status)
+
+    c = TestClient(srv.app)
+    assert c.get("/api/bot/status").json()["running"] is False
+    started = c.post("/api/bot/start", json={"mode": "demo"}).json()
+    assert started["running"] is True and started["mode"] == "demo"
+    try:
+        # Within a couple seconds the boot sequence reports connections.
+        connected = False
+        for _ in range(40):
+            st = c.get("/api/bot/status").json()
+            if st["telegram_connected"] and st["mt5_connected"]:
+                connected = True
+                break
+            _t.sleep(0.1)
+        assert connected, "demo bot did not report connected"
+    finally:
+        stopped = c.post("/api/bot/stop").json()
+        assert stopped["running"] is False
+    assert sim.get_demo_bot().running is False
+
+
+def test_bot_start_rejects_bad_mode():
+    c = TestClient(srv.app)
+    assert c.post("/api/bot/start", json={"mode": "nope"}).status_code == 400
+
+
 def test_auth_gating(tmp_path, monkeypatch):
     monkeypatch.setattr(srv, "TOKEN", "secret")
     monkeypatch.setattr(srv, "TRADES_FILE", str(tmp_path / "none.jsonl"))

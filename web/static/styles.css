@@ -49,10 +49,11 @@ body {
 
 /* Subtle film grain for depth (very low opacity) */
 .grain {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.035;
+  position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.035;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-body > *:not(.grain) { position: relative; z-index: 1; }
+/* Grain sits behind everything via negative z-index; content stacks normally
+   so sticky/fixed (top bar, boot overlay, control bar) work correctly. */
 
 /* ───────────────────────────── Top bar ───────────────────────────── */
 .topbar {
@@ -462,6 +463,113 @@ body[data-state="loading"] .stat__value { color: var(--text-faint); }
 @media (max-width: 560px) {
   .ctl__label, .estop__label { display: none; }
   .ctl, .estop { padding: 11px 13px; }
+}
+
+/* ───────────────────────────── Boot / connection ────────────────── */
+.boot {
+  position: fixed; inset: 0; z-index: 70;
+  display: grid; place-items: center; padding: 24px;
+  background:
+    radial-gradient(130% 90% at 50% -10%, rgba(255,255,255,0.06), transparent 55%),
+    #000;
+  transition: opacity 0.6s var(--ease), visibility 0.6s var(--ease);
+}
+.boot.is-gone { opacity: 0; visibility: hidden; pointer-events: none; }
+.boot__card {
+  display: flex; flex-direction: column; align-items: center;
+  width: 100%; max-width: 360px; padding: 38px 28px 30px;
+  background: linear-gradient(170deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line-strong); border-radius: var(--r-lg);
+  box-shadow: 0 30px 90px rgba(0,0,0,0.6);
+  animation: rise 0.6s var(--ease-out);
+}
+.boot__mark { color: var(--white); animation: floaty 4s ease-in-out infinite; }
+.boot__card h2 { font-size: 22px; letter-spacing: 0.18em; margin-top: 10px; }
+.boot__sub {
+  font-size: 11px; color: var(--text-faint); text-transform: uppercase;
+  letter-spacing: 0.16em; margin-top: 3px;
+}
+
+.connlist { list-style: none; width: 100%; margin: 26px 0 22px; display: flex; flex-direction: column; gap: 2px; }
+.connrow {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg); transition: border-color 0.4s var(--ease), background 0.4s var(--ease);
+}
+.connrow__dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--text-faint); position: relative; transition: all 0.4s var(--ease);
+}
+.connrow__label { font-size: 13px; color: var(--text-dim); flex: 1; }
+.connrow__state {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+/* connecting */
+.connrow.is-connecting { border-color: var(--line-strong); }
+.connrow.is-connecting .connrow__dot {
+  background: var(--white);
+  box-shadow: 0 0 0 0 rgba(255,255,255,0.5);
+  animation: pulse 1.1s var(--ease) infinite;
+}
+.connrow.is-connecting .connrow__label { color: var(--text); }
+.connrow.is-connecting .connrow__state { color: var(--text-dim); }
+/* connected */
+.connrow.is-on { border-color: rgba(255,255,255,0.22); background: var(--surface-2); }
+.connrow.is-on .connrow__dot { background: var(--white); box-shadow: 0 0 12px rgba(255,255,255,0.6); animation: none; }
+.connrow.is-on .connrow__label { color: var(--text); }
+.connrow.is-on .connrow__state { color: var(--white); }
+.connrow.is-on .connrow__state::before { content: "✓ "; }
+
+.boot__actions { width: 100%; display: flex; flex-direction: column; gap: 9px; }
+.boot__btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; padding: 13px; cursor: pointer; font-family: var(--sans);
+  font-size: 14px; font-weight: 650; letter-spacing: 0.02em;
+  color: var(--text); background: var(--surface-3);
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  transition: transform 0.2s var(--ease), background 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.boot__btn:hover { transform: translateY(-1px); border-color: var(--white); }
+.boot__btn:active { transform: translateY(0) scale(0.99); }
+.boot__btn--primary { background: var(--white); color: #000; border-color: var(--white); }
+.boot__btn[disabled] { opacity: 0.6; pointer-events: none; }
+.boot__btn.is-busy .boot__spinner { display: inline-block; }
+.boot__spinner {
+  display: none; width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.25); border-top-color: #000;
+  animation: spin 0.7s linear infinite;
+}
+.boot__btn:not(.boot__btn--primary) .boot__spinner { border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; }
+.boot__note { margin-top: 14px; font-size: 11px; color: var(--text-faint); text-align: center; }
+
+/* Running chip in the top bar */
+.run-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 6px 10px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.22); color: var(--text);
+}
+.run-chip__dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--white);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+.run-chip[data-mode="connecting"] { color: var(--text-dim); }
+.ctl--power { border-color: rgba(255,255,255,0.22); }
+
+/* Number value motion — subtle lift + brightness on change */
+.stat__value.tick-up, .perf__cell b.tick-up { animation: tickUp 0.7s var(--ease); }
+.stat__value.tick-down, .perf__cell b.tick-down { animation: tickDown 0.7s var(--ease); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes tickUp {
+  0% { color: #fff; text-shadow: 0 0 14px rgba(255,255,255,0.5); transform: translateY(2px); }
+  100% { text-shadow: none; transform: none; }
+}
+@keyframes tickDown {
+  0% { color: var(--text-dim); transform: translateY(-2px); }
+  100% { color: inherit; transform: none; }
 }
 
 /* ───────────────────────────── Animations ───────────────────────── */

@@ -67,12 +67,16 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    # 1) Seed realistic demo data (no API keys needed).
+    # Start with a clean slate so the connection/boot screen is captured first.
+    cfg = _server_cfg()
     if not args.keep_data:
-        from web.demo import seed
-        seed()
+        for f in (cfg.status_file, cfg.state_file, cfg.trades_file, cfg.review_file):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
 
-    # 2) Boot the dashboard in a background thread.
+    # Boot the dashboard in a background thread.
     import uvicorn
 
     from web.server import app
@@ -80,14 +84,12 @@ def main() -> int:
     config = uvicorn.Config(app, host="127.0.0.1", port=args.port,
                             log_level="warning")
     server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
+    threading.Thread(target=server.run, daemon=True).start()
     if not wait_for_port("127.0.0.1", args.port):
         print("ERROR: dashboard did not start", file=sys.stderr)
         return 1
     base = f"http://127.0.0.1:{args.port}"
 
-    # 3) Drive a headless browser.
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -102,27 +104,52 @@ def main() -> int:
             launch_kw["executable_path"] = chrome
         browser = p.chromium.launch(**launch_kw)
 
-        views = [
-            ("dashboard-desktop", 1280, 900, 2, False),
+        # 1) Connection / boot screen (bot offline).
+        page = browser.new_page(viewport={"width": 1280, "height": 900},
+                                device_scale_factor=2)
+        page.goto(base, wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        page.screenshot(path=str(out / "01-connect.png"))
+        shots.append("01-connect.png")
+        print("  captured 01-connect.png")
+
+        # 2) Start the live demo and let it connect + stream.
+        page.click("#startDemoBtn")
+        page.wait_for_timeout(5000)  # boot sequence + a few live ticks
+        page.screenshot(path=str(out / "dashboard-desktop.png"))
+        shots.append("dashboard-desktop.png")
+        print("  captured dashboard-desktop.png (live)")
+        page.close()
+
+        # 3) Tablet + mobile (demo already running → straight to live).
+        for name, w, h, dsr, full in [
             ("dashboard-tablet", 834, 1112, 2, False),
             ("dashboard-mobile", 390, 844, 3, True),
-        ]
-        for name, w, h, dsr, full in views:
-            page = browser.new_page(viewport={"width": w, "height": h},
-                                    device_scale_factor=dsr)
-            page.goto(base, wait_until="networkidle")
-            page.wait_for_timeout(1400)  # let charts/animations settle
-            path = out / f"{name}.png"
-            page.screenshot(path=str(path), full_page=full)
-            shots.append(path)
-            print(f"  captured {path}")
-            page.close()
+        ]:
+            pg = browser.new_page(viewport={"width": w, "height": h},
+                                  device_scale_factor=dsr)
+            pg.goto(base, wait_until="networkidle")
+            pg.wait_for_timeout(2500)
+            pg.screenshot(path=str(out / f"{name}.png"), full_page=full)
+            shots.append(f"{name}.png")
+            print(f"  captured {name}.png (live)")
+            pg.close()
 
         browser.close()
 
+    try:
+        from web.sim_bot import get_demo_bot
+        get_demo_bot().stop()
+    except Exception:  # noqa: BLE001
+        pass
     server.should_exit = True
     print(f"\nDone — {len(shots)} screenshot(s) in {out}/")
     return 0
+
+
+def _server_cfg():
+    from bot.config import get_config
+    return get_config(require_secrets=False)
 
 
 if __name__ == "__main__":

@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
+import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
-from fastapi import (Depends, FastAPI, Header, HTTPException, Query, WebSocket,
-                     WebSocketDisconnect)
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,12 +48,12 @@ TOKEN = cfg.dashboard.token
 # --------------------------------------------------------------------------- #
 #  Auth — optional bearer token / password protecting the API + WS
 # --------------------------------------------------------------------------- #
-def _token_ok(provided: Optional[str]) -> bool:
+def _token_ok(provided: str | None) -> bool:
     return (not TOKEN) or (provided == TOKEN)
 
 
-def require_token(authorization: Optional[str] = Header(None),
-                  token: Optional[str] = Query(None)) -> None:
+def require_token(authorization: str | None = Header(None),
+                  token: str | None = Query(None)) -> None:
     if not TOKEN:
         return
     provided = None
@@ -61,11 +63,11 @@ def require_token(authorization: Optional[str] = Header(None),
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-def read_performance() -> Dict[str, Any]:
+def read_performance() -> dict[str, Any]:
     return summarize(load_records(TRADES_FILE))
 
 
-def equity_curve(limit: int = 250) -> List[Dict[str, Any]]:
+def equity_curve(limit: int = 250) -> list[dict[str, Any]]:
     """Cumulative-profit series for the dashboard chart."""
 
     recs = [r for r in load_records(TRADES_FILE) if r.get("close_price") is not None]
@@ -81,7 +83,7 @@ def read_review_count() -> int:
     if not os.path.exists(REVIEW_FILE):
         return 0
     try:
-        with open(REVIEW_FILE, "r", encoding="utf-8") as fh:
+        with open(REVIEW_FILE, encoding="utf-8") as fh:
             return sum(1 for ln in fh if ln.strip())
     except Exception:  # noqa: BLE001
         return 0
@@ -92,15 +94,15 @@ app = FastAPI(title="GTMO XAUUSD Dashboard", docs_url=None, redoc_url=None)
 # --------------------------------------------------------------------------- #
 #  Data access helpers
 # --------------------------------------------------------------------------- #
-def _read_json(path: str) -> Optional[dict]:
+def _read_json(path: str) -> dict | None:
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except Exception:  # noqa: BLE001
         return None
 
 
-def read_status() -> Dict[str, Any]:
+def read_status() -> dict[str, Any]:
     data = _read_json(STATUS_FILE)
     if not data:
         return {"online": False}
@@ -108,9 +110,9 @@ def read_status() -> Dict[str, Any]:
     return data
 
 
-def read_signals() -> List[Dict[str, Any]]:
+def read_signals() -> list[dict[str, Any]]:
     data = _read_json(STATE_FILE) or {}
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for sig in (data.get("signals") or {}).values():
         positions = sig.get("positions", [])
         open_pos = [p for p in positions if not p.get("closed")]
@@ -149,7 +151,7 @@ _FEED_EVENTS = {
 }
 
 
-def _feed_item(rec: dict) -> Optional[Dict[str, Any]]:
+def _feed_item(rec: dict) -> dict[str, Any] | None:
     event = rec.get("event")
     if event not in _FEED_EVENTS:
         return None
@@ -176,17 +178,17 @@ def _feed_item(rec: dict) -> Optional[Dict[str, Any]]:
     return base
 
 
-def read_feed(limit: int = 80) -> List[Dict[str, Any]]:
+def read_feed(limit: int = 80) -> list[dict[str, Any]]:
     if not os.path.exists(AUDIT_FILE):
         return []
     tail: deque = deque(maxlen=limit * 3)
     try:
-        with open(AUDIT_FILE, "r", encoding="utf-8") as fh:
+        with open(AUDIT_FILE, encoding="utf-8") as fh:
             for line in fh:
                 tail.append(line)
     except Exception:  # noqa: BLE001
         return []
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     for line in tail:
         try:
             item = _feed_item(json.loads(line))
@@ -202,7 +204,7 @@ def read_feed(limit: int = 80) -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 class Hub:
     def __init__(self) -> None:
-        self.clients: Set[WebSocket] = set()
+        self.clients: set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
     async def join(self, ws: WebSocket) -> None:
@@ -232,7 +234,7 @@ async def _audit_tailer() -> None:
     """Tail the audit log and broadcast new feed items + status changes."""
 
     last_size = 0
-    last_status_ts: Optional[float] = None
+    last_status_ts: float | None = None
     # Start at end of file so we only stream genuinely new events.
     if os.path.exists(AUDIT_FILE):
         last_size = os.path.getsize(AUDIT_FILE)
@@ -245,7 +247,7 @@ async def _audit_tailer() -> None:
                 if size < last_size:  # rotated/truncated
                     last_size = 0
                 if size > last_size:
-                    with open(AUDIT_FILE, "r", encoding="utf-8") as fh:
+                    with open(AUDIT_FILE, encoding="utf-8") as fh:
                         fh.seek(last_size)
                         for line in fh:
                             try:
@@ -276,8 +278,8 @@ async def _startup() -> None:
 #  REST API
 # --------------------------------------------------------------------------- #
 @app.get("/api/auth")
-async def api_auth(authorization: Optional[str] = Header(None),
-                   token: Optional[str] = Query(None)) -> JSONResponse:
+async def api_auth(authorization: str | None = Header(None),
+                   token: str | None = Query(None)) -> JSONResponse:
     """Report whether auth is required and (if a token was sent) whether it's valid."""
 
     provided = None
@@ -318,7 +320,7 @@ async def api_feed(limit: int = 80) -> JSONResponse:
 
 
 @app.post("/api/control/emergency-stop", dependencies=[Depends(require_token)])
-async def api_emergency_stop(payload: Dict[str, Any]) -> JSONResponse:
+async def api_emergency_stop(payload: dict[str, Any]) -> JSONResponse:
     enabled = bool(payload.get("enabled"))
     if enabled:
         Path(STOP_FILE).write_text("stopped via dashboard\n", encoding="utf-8")
@@ -333,7 +335,7 @@ async def api_emergency_stop(payload: Dict[str, Any]) -> JSONResponse:
 
 
 @app.post("/api/control/pause", dependencies=[Depends(require_token)])
-async def api_pause(payload: Dict[str, Any]) -> JSONResponse:
+async def api_pause(payload: dict[str, Any]) -> JSONResponse:
     """Toggle the pause flag directly (works even if the bot is offline)."""
 
     enabled = bool(payload.get("enabled"))
@@ -360,8 +362,96 @@ async def api_close_all() -> JSONResponse:
     return JSONResponse({"queued": True})
 
 
+# --------------------------------------------------------------------------- #
+#  Bot lifecycle — start/stop from the dashboard (real subprocess or demo)
+# --------------------------------------------------------------------------- #
+class BotManager:
+    """Starts/stops the trading bot as a subprocess, or the in-process demo bot."""
+
+    def __init__(self) -> None:
+        self.proc: subprocess.Popen | None = None
+        self.mode: str | None = None
+        self._root = Path(__file__).resolve().parent.parent
+
+    @property
+    def running(self) -> bool:
+        if self.mode == "demo":
+            from web.sim_bot import get_demo_bot
+            return get_demo_bot().running
+        return self.proc is not None and self.proc.poll() is None
+
+    def start(self, mode: str) -> dict:
+        if self.running:
+            return {"running": True, "mode": self.mode, "note": "already running"}
+        if mode == "demo":
+            from web.sim_bot import get_demo_bot
+            get_demo_bot().start()
+            self.mode = "demo"
+            return {"running": True, "mode": "demo"}
+        # Real bot subprocess.
+        log = open(os.path.join(cfg.log_dir, "bot-process.log"), "a",
+                   encoding="utf-8")
+        self.proc = subprocess.Popen(
+            [sys.executable, "main.py"], cwd=str(self._root),
+            stdout=log, stderr=subprocess.STDOUT)
+        self.mode = "real"
+        return {"running": True, "mode": "real", "pid": self.proc.pid}
+
+    def stop(self) -> dict:
+        if self.mode == "demo":
+            from web.sim_bot import get_demo_bot
+            get_demo_bot().stop()
+        elif self.proc is not None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.proc = None
+        prev, self.mode = self.mode, None
+        return {"running": False, "mode": prev}
+
+    def state(self) -> dict:
+        st = read_status()
+        fresh = bool(st.get("ts") and (time.time() - st["ts"] < 12))
+        return {
+            "running": self.running,
+            "mode": self.mode,
+            "heartbeat": fresh,
+            "connecting": bool(st.get("connecting")),
+            "telegram_connected": bool(st.get("telegram_connected")),
+            "mt5_connected": bool(st.get("mt5_connected")),
+            "demo": bool(st.get("demo")),
+        }
+
+
+bot_manager = BotManager()
+
+
+@app.get("/api/bot/status", dependencies=[Depends(require_token)])
+async def api_bot_status() -> JSONResponse:
+    return JSONResponse(bot_manager.state())
+
+
+@app.post("/api/bot/start", dependencies=[Depends(require_token)])
+async def api_bot_start(payload: dict[str, Any]) -> JSONResponse:
+    mode = (payload or {}).get("mode", "demo")
+    if mode not in {"demo", "real"}:
+        raise HTTPException(status_code=400, detail="mode must be demo|real")
+    result = bot_manager.start(mode)
+    await hub.broadcast({"type": "bot", "state": bot_manager.state()})
+    return JSONResponse(result)
+
+
+@app.post("/api/bot/stop", dependencies=[Depends(require_token)])
+async def api_bot_stop() -> JSONResponse:
+    result = bot_manager.stop()
+    await hub.broadcast({"type": "bot", "state": bot_manager.state()})
+    return JSONResponse(result)
+
+
 @app.websocket("/ws")
-async def ws(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
+async def ws(ws: WebSocket, token: str | None = Query(None)) -> None:
     if TOKEN and not _token_ok(token):
         await ws.close(code=4401)
         return

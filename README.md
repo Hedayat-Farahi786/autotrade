@@ -14,14 +14,22 @@ with minimal latency.
 
 ## 📸 Dashboard
 
-Minimal, high-end, black-and-white, mobile-first. Live metrics, equity curve,
-positions, signal feed, trade history, and one-tap controls.
+Minimal, high-end, black-and-white, mobile-first, **real-time**. Start the bot
+from the UI, watch an animated **connection/boot sequence**, then see live
+metrics with **smooth count-up/down number animations**, an equity curve,
+positions, a streaming signal feed, trade history, and one-tap controls.
 
-| Desktop | Mobile |
-|---|---|
-| ![desktop](docs/screenshots/dashboard-desktop.png) | ![mobile](docs/screenshots/dashboard-mobile.png) |
+| Connect & start | Live (desktop) | Live (mobile) |
+|---|---|---|
+| ![connect](docs/screenshots/01-connect.png) | ![desktop](docs/screenshots/dashboard-desktop.png) | ![mobile](docs/screenshots/dashboard-mobile.png) |
 
-Generate fresh screenshots any time (no API keys needed):
+**Try the full live experience with no API keys** — open the dashboard and click
+**Start live demo**; a built-in simulator streams a realistic session (connecting
+→ live trades → animated P&L → growing equity curve):
+```bash
+python main.py --web        # → http://127.0.0.1:8000, then "Start live demo"
+```
+Generate fresh screenshots any time:
 ```bash
 python scripts/screenshot.py        # → docs/screenshots/*.png
 ```
