@@ -363,9 +363,11 @@ See [`.env.example`](.env.example) for every setting with inline docs. Key ones:
 ## 🧪 Tests
 
 ```bash
-pytest -q                 # 75 tests across parser, execution, intelligence,
-                          # multi-symbol, backtest, dashboard, AI parsers, e2e
+pytest -q                 # 92 tests: parser, execution, intelligence, multi-
+                          # symbol, backtest, dashboard, AI parsers, e2e, and
+                          # LIVE MT5 + Telegram paths (via faithful SDK mocks)
 python scripts/smoke.py   # human-readable end-to-end demo (no API keys)
+python scripts/live_check.py   # real Telegram + MT5 check (needs your keys)
 ```
 Highlights: `test_parser` pins behaviour to the exact GTMO screenshot styles;
 `test_end_to_end` runs a full simulated session; `test_ai_parser` injects fake
@@ -373,13 +375,31 @@ Gemini/Anthropic clients to prove the AI paths map responses to intents
 correctly — **so the moment you add a real key, parsing works**; `test_dashboard`
 covers every API route + token auth.
 
-### Adding your keys
-Everything runs key-free in simulation. To go live:
-1. `cp .env.example .env` and fill in Telegram + MT5 (+ `GEMINI_API_KEY` for AI
-   parsing). Without an AI key the bot auto-falls back to the regex parser.
-2. `python main.py --doctor` — confirms config, MT5, parser and keys are wired.
-3. Keep `DRY_RUN=true` on a demo account first; flip to `false` only when the
-   `--doctor` checks and the Performance panel look right.
+### Going live with your keys — step by step
+Everything runs key-free in simulation. To connect the real services with
+confidence, follow this order:
+
+1. **Configure** — `cp .env.example .env` and fill in Telegram (`TELEGRAM_API_ID/
+   HASH/CHANNEL/PHONE`), MT5 (`MT5_LOGIN/PASSWORD/SERVER`), and optionally
+   `GEMINI_API_KEY` + `PARSER_MODE=hybrid`. No AI key → automatic regex fallback.
+2. **First Telegram login** — `python main.py` once; enter the phone code (and
+   2FA). This creates the `.session` file so future runs are non-interactive.
+   (Run MT5 on a **Windows host/VPS** — the `MetaTrader5` package is Windows-only.)
+3. **Preflight** — `python main.py --doctor` checks config, AI key, the **real
+   Telegram connection** (via the session) and the **real MT5 connection**
+   (symbol + balance). Everything should be PASS.
+4. **Live connectivity check** — `python scripts/live_check.py` connects for real
+   and proves the full chain: a live AI parse, reads your channel's last messages
+   and shows how each parses, and **validates a 0.01-lot order via `order_check`
+   without placing it** (zero risk). Add `--trade` to place & immediately close a
+   real 0.01-lot order on a **demo** account for a true round-trip.
+5. **Go live** — keep `DRY_RUN=true` on a demo first; flip to `false` only once
+   `--doctor`, `--live-check`, and the Performance panel all look right.
+
+> The bot calls the real `MetaTrader5` and `telethon` APIs directly; the request
+> shapes (order_send/login/history) and the listen→parse→execute flow are covered
+> by 90+ tests against faithful SDK mocks, so the code paths are verified — and
+> `--live-check` confirms your specific credentials and broker work end-to-end.
 
 ---
 

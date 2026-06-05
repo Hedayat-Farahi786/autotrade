@@ -56,6 +56,10 @@ def main() -> None:
                     help="With --backfill, also list ignored/noise messages.")
     ap.add_argument("--doctor", action="store_true",
                     help="Run preflight checks (config, MT5, parser, keys) and exit.")
+    ap.add_argument("--live-check", action="store_true",
+                    help="Verify REAL Telegram + MT5 connections with your keys.")
+    ap.add_argument("--trade", action="store_true",
+                    help="With --live-check, place & close a real 0.01-lot order (DEMO).")
     ap.add_argument("--backtest", nargs=2, metavar=("MESSAGES", "PRICES"),
                     help="Backtest: replay a messages file (JSONL/Telegram export) "
                          "against a prices CSV and print performance.")
@@ -76,6 +80,12 @@ def main() -> None:
 
         run_backfill(days=args.backfill, show_noise=args.show_noise)
         return
+
+    if args.live_check:
+        import asyncio
+
+        from scripts.live_check import _main as live_main
+        sys.exit(asyncio.run(live_main(8, args.trade)))
 
     if args.doctor:
         from bot.doctor import run as run_doctor

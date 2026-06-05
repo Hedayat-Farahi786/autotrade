@@ -31,9 +31,9 @@ async def test_connect_initializes_and_loads_spec(monkeypatch):
     ex = _live_executor(monkeypatch, fake)
     assert await ex.connect() is True
     assert fake.initialized is True
-    # login/server/password were passed to initialize().
-    assert fake.init_kwargs.get("login") == 123
-    assert fake.init_kwargs.get("server") == "FakeBroker"
+    # Account login happens via mt5.login() after initialize().
+    assert fake.logged_in is True
+    assert fake.login_args == (123, "x", "FakeBroker")
     assert ex.symbol == "XAUUSD"
     spec = ex.spec
     assert spec and spec.contract_size == 100.0 and spec.volume_min == 0.01
@@ -140,6 +140,17 @@ async def test_close_buy_and_realized_profit(monkeypatch):
     assert r["type"] == FakeMT5.ORDER_TYPE_SELL     # closing a BUY → SELL
     assert r["position"] == 700002
     assert res.profit == 73.5                       # from history_deals_get
+
+
+async def test_order_check_validates_without_placing(monkeypatch):
+    fake = FakeMT5()
+    ex = _live_executor(monkeypatch, fake)
+    await ex.connect()
+    result = await ex.check_order(direction="BUY", volume=0.01)
+    assert result["ok"] is True and result["retcode"] == 0
+    # It used order_check (not order_send) → no real order was sent.
+    assert any(r.get("_check") for r in fake.requests)
+    assert all("order" not in r or r.get("_check") for r in fake.requests)
 
 
 async def test_positions_by_magic_and_all(monkeypatch):

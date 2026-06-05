@@ -203,24 +203,34 @@ class MT5Executor:
             log.warning("MT5 executor running in %s mode — no real orders.", mode)
             return True
 
-        kwargs: dict[str, Any] = {}
-        if self.cfg.terminal_path:
-            kwargs["path"] = self.cfg.terminal_path
-        if self.cfg.login and self.cfg.password and self.cfg.server:
-            kwargs.update(
-                login=int(self.cfg.login),
-                password=self.cfg.password,
-                server=self.cfg.server,
-            )
-        if not mt5.initialize(**kwargs):  # type: ignore[union-attr]
+        # Initialize the terminal (optionally at a specific path).
+        init_ok = (mt5.initialize(self.cfg.terminal_path)  # type: ignore[union-attr]
+                   if self.cfg.terminal_path else mt5.initialize())  # type: ignore[union-attr]
+        if not init_ok:
             log.error("mt5.initialize failed: %s", mt5.last_error())  # type: ignore
+            return False
+
+        # Explicit account login (more reliable across brokers than passing
+        # credentials to initialize()). Skipped if the terminal is already
+        # logged into the desired account.
+        if self.cfg.login and self.cfg.password and self.cfg.server:
+            if not mt5.login(int(self.cfg.login), password=self.cfg.password,  # type: ignore
+                             server=self.cfg.server):
+                log.error("mt5.login failed for %s@%s: %s", self.cfg.login,
+                          self.cfg.server, mt5.last_error())  # type: ignore
+                return False
+
+        if mt5.account_info() is None:  # type: ignore[union-attr]
+            log.error("MT5 connected but no account is logged in: %s",
+                      mt5.last_error())  # type: ignore
             return False
 
         self._symbol = self._resolve_symbol()
         if not self._symbol:
             log.error("Could not resolve a tradable symbol for %s", self.cfg.symbol)
             return False
-        mt5.symbol_select(self._symbol, True)  # type: ignore[union-attr]
+        if not mt5.symbol_select(self._symbol, True):  # type: ignore[union-attr]
+            log.warning("symbol_select(%s) returned False", self._symbol)
         self._spec = self._load_symbol_spec(self._symbol)
         if self._spec:
             self._specs[self._symbol] = self._spec
@@ -498,23 +508,71 @@ class MT5Executor:
                            comment=str(getattr(result, "comment", "")), raw=result)
 
     def _deal_profit(self, position_ticket: int) -> float | None:
-        """Sum realized profit of deals belonging to a position (live MT5)."""
+        """Sum realized profit of deals belonging to a position (live MT5).
+
+        Uses the canonical ``position=`` filter; if the terminal hasn't cached
+        that history yet, selects a recent window and retries.
+        """
 
         try:
             import time as _t
 
-            deals = mt5.history_deals_get(  # type: ignore[union-attr]
-                _t.time() - 7 * 86400, _t.time() + 60, position=position_ticket)
+            deals = mt5.history_deals_get(position=position_ticket)  # type: ignore
+            if not deals:
+                # Ensure recent history is loaded, then retry.
+                mt5.history_select(_t.time() - 30 * 86400, _t.time() + 60)  # type: ignore
+                deals = mt5.history_deals_get(position=position_ticket)  # type: ignore
             if not deals:
                 return None
             return round(sum(d.profit + d.swap + d.commission for d in deals), 2)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.debug("deal profit lookup failed for %s: %s", position_ticket, exc)
             return None
 
     async def position_profit(self, ticket: int) -> float | None:
         """Realized profit for a position already closed at the broker."""
 
         return await self._run(self._deal_profit, ticket)
+
+    async def check_order(self, *, direction: str = "BUY", volume: float = 0.01,
+                          symbol: str | None = None) -> dict[str, Any]:
+        """Validate a market order via ``order_check`` WITHOUT placing it.
+
+        Used by the live connectivity check to prove the order pipeline works
+        end-to-end (margin, fill mode, stops level) with zero risk.
+        """
+
+        return await self._run(self._check_order_sync, direction, volume, symbol)
+
+    def _check_order_sync(self, direction: str, volume: float,
+                          symbol: str | None) -> dict[str, Any]:
+        sym = symbol or self._symbol
+        if self.simulate:
+            tick = self._sim.tick(sym)  # type: ignore[union-attr]
+            return {"ok": True, "retcode": 0, "comment": "sim",
+                    "price": tick["ask"], "simulated": True}
+        is_buy = direction.upper() == "BUY"
+        tick = mt5.symbol_info_tick(sym)  # type: ignore[union-attr]
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,  # type: ignore
+            "symbol": sym, "volume": float(volume),
+            "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,  # type: ignore
+            "price": tick.ask if is_buy else tick.bid,
+            "deviation": self.cfg.deviation_points,
+            "magic": self.cfg.magic_base,
+            "comment": "gtmo-check",
+            "type_time": mt5.ORDER_TIME_GTC,  # type: ignore
+            "type_filling": self._filling_mode(),
+        }
+        result = mt5.order_check(request)  # type: ignore[union-attr]
+        retcode = getattr(result, "retcode", -1)
+        return {
+            "ok": retcode == 0,
+            "retcode": retcode,
+            "comment": getattr(result, "comment", ""),
+            "margin": getattr(result, "margin", None),
+            "margin_free": getattr(result, "margin_free", None),
+        }
 
     def _find_position(self, ticket: int):
         positions = mt5.positions_get(ticket=ticket)  # type: ignore[union-attr]

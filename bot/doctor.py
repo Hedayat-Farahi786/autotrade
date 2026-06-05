@@ -85,6 +85,26 @@ async def _run() -> int:
     except Exception as exc:  # noqa: BLE001
         rep.add(FAIL, "Parser", str(exc))
 
+    # --- Telegram connectivity (uses an existing session; non-interactive) --
+    import os as _os
+    session_path = f"{cfg.telegram.session_name}.session"
+    if not (tg.api_id and tg.api_hash and tg.channel):
+        rep.add(WARN, "Telegram connection", "skipped (credentials missing)")
+    elif not _os.path.exists(session_path):
+        rep.add(WARN, "Telegram connection",
+                "no session yet — run `python main.py` once to log in")
+    else:
+        try:
+            from .telegram.listener import TelegramListener
+
+            listener = TelegramListener(cfg.telegram, on_message=lambda t, m: None)
+            entity = await listener.connect_only()
+            title = getattr(entity, "title", str(entity))
+            rep.add(PASS, "Telegram connection", f"channel='{title}'")
+            await listener.stop()
+        except Exception as exc:  # noqa: BLE001
+            rep.add(FAIL, "Telegram connection", str(exc)[:100])
+
     # --- MT5 connection -------------------------------------------------
     try:
         from .mt5.executor import MT5Executor

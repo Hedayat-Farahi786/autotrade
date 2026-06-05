@@ -41,13 +41,28 @@ class FakeMT5:
         self.shutdown_called = False
 
     # --- lifecycle -------------------------------------------------------
-    def initialize(self, **kwargs) -> bool:
+    def initialize(self, path=None, **kwargs) -> bool:
         self.init_kwargs = kwargs
+        self.init_path = path
         self.initialized = True
+        return True
+
+    def login(self, login, password=None, server=None) -> bool:
+        self.login_args = (login, password, server)
+        self.logged_in = True
         return True
 
     def last_error(self):
         return (0, "ok")
+
+    def history_select(self, dt_from, dt_to) -> bool:
+        return True
+
+    def order_check(self, request):
+        # retcode 0 == valid request that would succeed.
+        self.requests.append({"_check": True, **request})
+        return SimpleNamespace(retcode=0, comment="Done", balance=self._balance,
+                               margin=10.0, margin_free=self._balance - 10.0)
 
     def shutdown(self):
         self.shutdown_called = True
@@ -92,7 +107,8 @@ class FakeMT5:
             out = [p for p in out if p.symbol == symbol]
         return list(out)
 
-    def history_deals_get(self, dt_from, dt_to, position=None):
+    def history_deals_get(self, dt_from=None, dt_to=None, position=None,
+                          ticket=None, group=None):
         return [SimpleNamespace(profit=self._deal_profit, swap=0.0, commission=0.0)]
 
     # --- order entry -----------------------------------------------------
