@@ -181,11 +181,55 @@ async def main() -> int:
     except Exception as e:  # noqa: BLE001
         check("dashboard import", False, str(e)[:80])
 
+    # 8) Live MT5 wiring (mocked terminal) -----------------------------------
+    section("8. MT5 connection & order path (mocked terminal)")
+    import bot.mt5.executor as E
+    from tests.fake_mt5 import FakeMT5
+    fake = FakeMT5()
+    E.mt5 = fake
+    E._MT5_AVAILABLE = True
+    live = E.MT5Executor(MT5Config(symbol="XAUUSD", login=1, password="x",
+                                   server="Broker"), dry_run=False)
+    check("live (non-simulate) executor", live.simulate is False)
+    check("connect() initializes terminal", await live.connect() and fake.initialized)
+    check("account + symbol resolved",
+          live.symbol == "XAUUSD" and await live.account_balance() == 10000.0)
+    r = await live.open_position(direction="BUY", volume=0.1, price=None,
+                                 sl=4464.0, tp=4472.0, order_kind="MARKET",
+                                 magic=990007, comment="GTMO#7")
+    ok_req = (r.ok and fake.last_request["type"] == FakeMT5.ORDER_TYPE_BUY
+              and fake.last_request["sl"] == 4464.0)
+    check("market BUY → correct order_send request", ok_req,
+          f"action={fake.last_request['action']} type={fake.last_request['type']}")
+    await live.shutdown()
+
+    # 9) Live Telegram wiring (mocked client) --------------------------------
+    section("9. Telegram listen → execute (mocked client)")
+    from tests import fake_telethon
+    fake_telethon.install()
+    from bot.config import TelegramConfig
+    from bot.telegram.listener import TelegramListener
+
+    async def on_msg(text, mid):
+        await trader.handle(parser.parse(text, mid))
+
+    lis = TelegramListener(TelegramConfig(api_id=1, api_hash="h",
+                                          channel="GTMO VIP", phone="+1"), on_msg)
+    await lis.start()
+    check("client connected + handlers registered",
+          lis._client.started and len(lis._client.handlers) >= 1)
+    ex._sim.set_reference_price(4469.5)  # market sits in the new entry zone
+    n0 = len(state.active_signals())
+    await lis._client.fire("Gold buy now 4471 - 4468\nSL: 4465\nTP: 4475", 9001)
+    check("channel message → trade executed", len(state.active_signals()) == n0 + 1)
+    await lis._client.fire("We in blueeee 😎", 9002)
+    check("noise ignored", len(state.active_signals()) == n0 + 1)
+
     print()
     if _fails:
         print(f"\033[31m{_fails} check(s) FAILED\033[0m\n")
         return 1
-    print("\033[32mAll checks passed — every feature works with dummy data.\033[0m\n")
+    print("\033[32mAll checks passed — every feature works (sim + mocked live MT5/Telegram).\033[0m\n")
     return 0
 
 
