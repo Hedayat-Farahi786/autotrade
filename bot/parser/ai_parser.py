@@ -22,7 +22,7 @@ try:
     import anthropic  # type: ignore
 
     _SDK = True
-except Exception:  # noqa: BLE001
+except BaseException:  # noqa: BLE001 - some envs panic at C-extension import
     anthropic = None  # type: ignore
     _SDK = False
 

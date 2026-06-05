@@ -24,7 +24,7 @@ try:
     from google.genai import types as genai_types  # type: ignore
 
     _SDK = True
-except Exception:  # noqa: BLE001
+except BaseException:  # noqa: BLE001 - some envs panic at C-extension import
     genai = None  # type: ignore
     genai_types = None  # type: ignore
     _SDK = False
@@ -53,6 +53,9 @@ class GeminiParser:
         # HTTP options carry the request timeout (milliseconds).
         http_opts = genai_types.HttpOptions(timeout=int(timeout * 1000))
         self._client = genai.Client(api_key=api_key, http_options=http_opts)
+        self._types = genai_types
+        self._max_tokens = max_tokens
+        # Primary config: JSON mode + a strict response schema for best structure.
         self._gen_config = genai_types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             temperature=0,
@@ -60,23 +63,50 @@ class GeminiParser:
             response_mime_type="application/json",
             response_schema=INTENTS_SCHEMA,
         )
+        # Fallback config: JSON mode only (no schema), in case a model/version
+        # rejects the schema. The detailed system prompt still pins the shape.
+        self._gen_config_fallback = genai_types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0,
+            max_output_tokens=max_tokens,
+            response_mime_type="application/json",
+        )
+        self._schema_ok = True
 
     async def parse(self, text: str | None, message_id: int | None = None) -> list[Intent]:
         if not text or not text.strip():
             return []
         text = text.strip()
         t0 = time.time()
+        config = self._gen_config if self._schema_ok else self._gen_config_fallback
         try:
             resp = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=f"MESSAGE:\n{text}",
-                config=self._gen_config,
+                config=config,
             )
         except Exception as exc:  # noqa: BLE001
-            log.error("Gemini parse failed (%s); message left unparsed.", exc)
-            audit("ai_parse_error", provider="gemini", error=str(exc),
-                  message_id=message_id)
-            return []
+            # A schema rejection is recoverable: retry once in plain JSON mode
+            # and remember to use it from now on.
+            if self._schema_ok:
+                self._schema_ok = False
+                log.warning("Gemini schema rejected (%s); retrying in JSON mode.", exc)
+                try:
+                    resp = await self._client.aio.models.generate_content(
+                        model=self.model,
+                        contents=f"MESSAGE:\n{text}",
+                        config=self._gen_config_fallback,
+                    )
+                except Exception as exc2:  # noqa: BLE001
+                    log.error("Gemini parse failed (%s); message left unparsed.", exc2)
+                    audit("ai_parse_error", provider="gemini", error=str(exc2),
+                          message_id=message_id)
+                    return []
+            else:
+                log.error("Gemini parse failed (%s); message left unparsed.", exc)
+                audit("ai_parse_error", provider="gemini", error=str(exc),
+                      message_id=message_id)
+                return []
 
         latency_ms = round((time.time() - t0) * 1000)
         payload = self._extract_json(resp)

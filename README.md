@@ -12,6 +12,22 @@ with minimal latency.
 
 ---
 
+## 📸 Dashboard
+
+Minimal, high-end, black-and-white, mobile-first. Live metrics, equity curve,
+positions, signal feed, trade history, and one-tap controls.
+
+| Desktop | Mobile |
+|---|---|
+| ![desktop](docs/screenshots/dashboard-desktop.png) | ![mobile](docs/screenshots/dashboard-mobile.png) |
+
+Generate fresh screenshots any time (no API keys needed):
+```bash
+python scripts/screenshot.py        # → docs/screenshots/*.png
+```
+
+---
+
 ## ✨ What it does
 
 It reads messages like the ones GTMO VIP posts and turns them into actions:
@@ -347,11 +363,23 @@ See [`.env.example`](.env.example) for every setting with inline docs. Key ones:
 ## 🧪 Tests
 
 ```bash
-pytest -q
+pytest -q                 # 75 tests across parser, execution, intelligence,
+                          # multi-symbol, backtest, dashboard, AI parsers, e2e
+python scripts/smoke.py   # human-readable end-to-end demo (no API keys)
 ```
-`tests/test_parser.py` pins parser behaviour to the exact GTMO screenshot styles;
-`tests/test_pipeline.py` runs a full entry → SL → partial → breakeven lifecycle
-against the simulator.
+Highlights: `test_parser` pins behaviour to the exact GTMO screenshot styles;
+`test_end_to_end` runs a full simulated session; `test_ai_parser` injects fake
+Gemini/Anthropic clients to prove the AI paths map responses to intents
+correctly — **so the moment you add a real key, parsing works**; `test_dashboard`
+covers every API route + token auth.
+
+### Adding your keys
+Everything runs key-free in simulation. To go live:
+1. `cp .env.example .env` and fill in Telegram + MT5 (+ `GEMINI_API_KEY` for AI
+   parsing). Without an AI key the bot auto-falls back to the regex parser.
+2. `python main.py --doctor` — confirms config, MT5, parser and keys are wired.
+3. Keep `DRY_RUN=true` on a demo account first; flip to `false` only when the
+   `--doctor` checks and the Performance panel look right.
 
 ---
 

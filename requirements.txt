@@ -20,3 +20,6 @@ pytest==8.3.3
 pytest-asyncio==0.24.0
 ruff>=0.6.0
 mypy>=1.11.0
+# Optional: only for scripts/screenshot.py (dashboard screenshots).
+#   pip install playwright && playwright install chromium
+playwright>=1.40.0 ; python_version >= "3.8"
