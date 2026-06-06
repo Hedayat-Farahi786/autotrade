@@ -198,15 +198,18 @@ class BotConfig:
 
 _cached: BotConfig | None = None
 
-RUNTIME_TELEGRAM_FILE = "state/telegram.json"
+# Unified runtime settings written by the in-app Setup guide. Sections:
+# {"telegram": {...}, "mt5": {...}, "parser": {...}, "dry_run": bool}
+RUNTIME_FILE = "state/runtime.json"
+RUNTIME_TELEGRAM_FILE = RUNTIME_FILE  # back-compat alias
 
 
-def _load_runtime_telegram(path: str | None = None) -> dict:
-    """Read UI-saved Telegram settings (api_id/api_hash/phone/channel/session)."""
+def _load_runtime(path: str | None = None) -> dict:
+    """Read the UI-saved runtime settings file (all sections)."""
 
     import json
 
-    path = path or RUNTIME_TELEGRAM_FILE
+    path = path or RUNTIME_FILE
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -215,22 +218,39 @@ def _load_runtime_telegram(path: str | None = None) -> dict:
         return {}
 
 
-def save_runtime_telegram(updates: dict, path: str | None = None) -> dict:
-    """Merge and persist UI-saved Telegram settings; returns the merged dict."""
+def save_runtime(section: str, updates: dict, path: str | None = None) -> dict:
+    """Merge and persist a section of UI-saved settings; returns the section."""
 
     import json
     import os
 
-    path = path or RUNTIME_TELEGRAM_FILE
-    data = _load_runtime_telegram(path)
-    data.update({k: v for k, v in updates.items() if v is not None})
+    path = path or RUNTIME_FILE
+    data = _load_runtime(path)
+    if section:
+        sec = data.get(section) if isinstance(data.get(section), dict) else {}
+        sec.update({k: v for k, v in updates.items() if v is not None})
+        data[section] = sec
+        result = sec
+    else:  # top-level keys (e.g. dry_run)
+        data.update(updates)
+        result = data
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     os.replace(tmp, path)
     reset_cache()  # so the next get_config() picks up new values
-    return data
+    return result
+
+
+def _load_runtime_telegram(path: str | None = None) -> dict:
+    """Back-compat: return just the telegram section."""
+
+    return _load_runtime(path).get("telegram", {})
+
+
+def save_runtime_telegram(updates: dict, path: str | None = None) -> dict:
+    return save_runtime("telegram", updates, path)
 
 
 def get_config(require_secrets: bool = True) -> BotConfig:
@@ -240,9 +260,12 @@ def get_config(require_secrets: bool = True) -> BotConfig:
     if _cached is not None:
         return _cached
 
-    # UI-saved Telegram settings (written by the in-app login wizard). Env vars
-    # take precedence; this file fills in anything not set in the environment.
-    rt = _load_runtime_telegram(_get("TELEGRAM_RUNTIME_FILE", RUNTIME_TELEGRAM_FILE))
+    # UI-saved settings (written by the in-app Setup guide). Env vars take
+    # precedence; this file fills in anything not set in the environment.
+    _runtime = _load_runtime(_get("RUNTIME_FILE", RUNTIME_FILE))
+    rt = _runtime.get("telegram", {})
+    rt_mt5 = _runtime.get("mt5", {})
+    rt_parser = _runtime.get("parser", {})
     api_id_raw = _get("TELEGRAM_API_ID") or (str(rt["api_id"]) if rt.get("api_id") else None)
     api_hash = _get("TELEGRAM_API_HASH") or rt.get("api_hash")
     channel = _get("TELEGRAM_CHANNEL", "") or rt.get("channel", "")
@@ -272,11 +295,11 @@ def get_config(require_secrets: bool = True) -> BotConfig:
 
     overrides = _get("MT5_SYMBOL_OVERRIDES", "")
     mt5 = MT5Config(
-        login=_get_int("MT5_LOGIN", 0) or None,
-        password=_get("MT5_PASSWORD"),
-        server=_get("MT5_SERVER"),
-        terminal_path=_get("MT5_TERMINAL_PATH"),
-        symbol=_get("MT5_SYMBOL", "XAUUSD"),
+        login=(_get_int("MT5_LOGIN", 0) or (int(rt_mt5["login"]) if rt_mt5.get("login") else None)),
+        password=_get("MT5_PASSWORD") or rt_mt5.get("password"),
+        server=_get("MT5_SERVER") or rt_mt5.get("server"),
+        terminal_path=_get("MT5_TERMINAL_PATH") or rt_mt5.get("terminal_path"),
+        symbol=_get("MT5_SYMBOL") or rt_mt5.get("symbol") or "XAUUSD",
         symbol_overrides=[s.strip() for s in overrides.split(",") if s.strip()],
         deviation_points=_get_int("MT5_DEVIATION_POINTS", 30),
         magic_base=_get_int("MT5_MAGIC_BASE", 990000),
@@ -294,11 +317,12 @@ def get_config(require_secrets: bool = True) -> BotConfig:
     )
 
     parser = ParserConfig(
-        mode=_get("PARSER_MODE", "hybrid"),
-        provider=_get("AI_PROVIDER", "gemini"),
-        gemini_api_key=_get("GEMINI_API_KEY") or _get("GOOGLE_API_KEY"),
+        mode=_get("PARSER_MODE") or rt_parser.get("mode") or "hybrid",
+        provider=_get("AI_PROVIDER") or rt_parser.get("provider") or "gemini",
+        gemini_api_key=(_get("GEMINI_API_KEY") or _get("GOOGLE_API_KEY")
+                        or rt_parser.get("gemini_api_key")),
         gemini_model=_get("GEMINI_MODEL", "gemini-2.5-flash"),
-        anthropic_api_key=_get("ANTHROPIC_API_KEY"),
+        anthropic_api_key=_get("ANTHROPIC_API_KEY") or rt_parser.get("anthropic_api_key"),
         anthropic_model=_get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
     )
 
@@ -361,7 +385,7 @@ def get_config(require_secrets: bool = True) -> BotConfig:
         control=control,
         dashboard=dashboard,
         symbols=symbols,
-        dry_run=_get_bool("DRY_RUN", True),
+        dry_run=_get_bool("DRY_RUN", bool(_runtime.get("dry_run", True))),
         log_level=_get("LOG_LEVEL", "INFO"),
         log_dir=_get("LOG_DIR", "logs"),
         state_file=_get("STATE_FILE", "state/active_signals.json"),

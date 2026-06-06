@@ -24,7 +24,7 @@ def _cfg():
 
 def _mgr(tmp_path, monkeypatch):
     import bot.config as C
-    monkeypatch.setattr(C, "RUNTIME_TELEGRAM_FILE", str(tmp_path / "telegram.json"))
+    monkeypatch.setattr(C, "RUNTIME_FILE", str(tmp_path / "runtime.json"))
     return TelegramLoginManager(_cfg)
 
 
@@ -86,7 +86,7 @@ async def test_dialogs_requires_signin(tmp_path, monkeypatch):
 def test_runtime_settings_persist_to_config(tmp_path, monkeypatch):
     import bot.config as C
     path = str(tmp_path / "telegram.json")
-    monkeypatch.setattr(C, "RUNTIME_TELEGRAM_FILE", path)
+    monkeypatch.setattr(C, "RUNTIME_FILE", path)
     # Ensure env doesn't shadow the file.
     for k in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_CHANNEL"):
         monkeypatch.delenv(k, raising=False)

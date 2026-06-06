@@ -505,6 +505,49 @@ async def api_tg_logout() -> JSONResponse:
     return await _tg(tg_login.logout())
 
 
+# --------------------------------------------------------------------------- #
+#  Setup guide — MT5, AI keys, mode, and unified readiness state
+# --------------------------------------------------------------------------- #
+from web import setup as setup_mod  # noqa: E402
+
+
+@app.get("/api/setup/state", dependencies=[Depends(require_token)])
+async def api_setup_state() -> JSONResponse:
+    tg = await tg_login.state()
+    return JSONResponse(await setup_mod.setup_state(tg))
+
+
+@app.post("/api/mt5/test", dependencies=[Depends(require_token)])
+async def api_mt5_test(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(await setup_mod.test_mt5(
+        payload.get("login"), payload.get("password"), payload.get("server"),
+        payload.get("terminal_path"), payload.get("symbol")))
+
+
+@app.post("/api/mt5/save", dependencies=[Depends(require_token)])
+async def api_mt5_save(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(setup_mod.save_mt5(
+        payload.get("login"), payload.get("password"), payload.get("server"),
+        payload.get("terminal_path"), payload.get("symbol")))
+
+
+@app.post("/api/ai/save", dependencies=[Depends(require_token)])
+async def api_ai_save(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(setup_mod.save_ai(
+        payload.get("mode"), payload.get("provider"),
+        payload.get("gemini_api_key"), payload.get("anthropic_api_key")))
+
+
+@app.post("/api/ai/test", dependencies=[Depends(require_token)])
+async def api_ai_test() -> JSONResponse:
+    return JSONResponse(await setup_mod.test_ai())
+
+
+@app.post("/api/setup/dry-run", dependencies=[Depends(require_token)])
+async def api_setup_dryrun(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(setup_mod.set_dry_run(bool(payload.get("dry_run", True))))
+
+
 @app.get("/api/bot/status", dependencies=[Depends(require_token)])
 async def api_bot_status() -> JSONResponse:
     return JSONResponse(bot_manager.state())

@@ -522,12 +522,12 @@
   }
 
   $("#startDemoBtn").addEventListener("click", () => startBot("demo"));
-  $("#startRealBtn").addEventListener("click", () => Wizard.open());
+  $("#startRealBtn").addEventListener("click", () => Setup.open());
 
   /* ----------------------------------------------- Telegram connect wizard */
   const Wizard = (() => {
     const wiz = $("#tgWizard");
-    let dialogs = [], me = null;
+    let dialogs = [], me = null, onDone = null;
 
     const err = (m) => {
       const e = $("#wizErr"); e.textContent = m || "";
@@ -550,7 +550,8 @@
       if (inp) setTimeout(() => inp.focus(), 60);
     }
 
-    async function open() {
+    async function open(doneCb) {
+      onDone = doneCb || null;
       wiz.classList.remove("is-hidden");
       err(""); show("creds");
       try {
@@ -640,15 +641,18 @@
       } catch (ex) { err(ex.message); }
     }
 
-    // Step 5 — ready → start the real bot
+    // Step 5 — ready → start the real bot (or return to the Setup guide)
     function gotoReady(channel) {
       show("ready");
       $("#wizReady").innerHTML = me
         ? `Connected as <b>@${esc(me.username || me.first_name || "you")}</b><br>Listening to <b>${esc(channel)}</b>`
         : `Listening to <b>${esc(channel)}</b>`;
+      $("#wizStart").querySelector("span:last-child").textContent =
+        onDone ? "Done" : "Start the bot";
     }
     $("#wizChangeChan").addEventListener("click", gotoChannel);
     $("#wizStart").addEventListener("click", async (e) => {
+      if (onDone) { close(); onDone(); return; }
       busy(e.currentTarget, true);
       close();
       await startBot("real");
@@ -668,6 +672,146 @@
     wiz.addEventListener("click", (e) => { if (e.target === wiz) close(); });
 
     return { open, close };
+  })();
+
+  /* --------------------------------------------------- First-time Setup guide */
+  const Setup = (() => {
+    const el = $("#setup");
+    let state = null;
+
+    const setBusy = (btn, on) => { if (btn) { btn.classList.toggle("is-busy", on); btn.disabled = on; } };
+    async function post(url, body) {
+      const r = await authedFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "Request failed");
+      return d;
+    }
+
+    function openConnector(key) {
+      el.querySelectorAll(".connector").forEach((c) => c.classList.toggle("is-open", c.dataset.key === key));
+    }
+    el.querySelectorAll("[data-toggle]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const c = btn.closest(".connector");
+        const wasOpen = c.classList.contains("is-open");
+        el.querySelectorAll(".connector").forEach((x) => x.classList.remove("is-open"));
+        if (!wasOpen) c.classList.add("is-open");
+      }));
+
+    function status(key, text, st) {
+      const node = el.querySelector(`.connector[data-key="${key}"] [data-status]`);
+      if (node) { node.textContent = text; node.dataset.state = st || ""; }
+      el.querySelector(`.connector[data-key="${key}"]`).classList.toggle("is-done", st === "ok");
+    }
+    function setMode(mode) {
+      el.querySelectorAll("#suMode .seg__opt").forEach((o) => o.classList.toggle("is-active", o.dataset.mode === mode));
+    }
+
+    async function refresh() {
+      try { state = await authedFetch("/api/setup/state").then((r) => r.json()); render(); }
+      catch (e) { /* ignore */ }
+    }
+    function render() {
+      if (!state) return;
+      const tg = state.telegram, m = state.mt5, ai = state.ai;
+      if (tg.connected && tg.channel) {
+        status("telegram", "Connected", "ok");
+        $("#suTgSum").innerHTML = `Connected as <b>@${esc((tg.me && tg.me.username) || "you")}</b> · listening to <b>${esc(tg.channel)}</b>`;
+        $("#suTgBtn").textContent = "Change account / channel";
+      } else if (tg.connected) {
+        status("telegram", "Pick channel", "warn");
+      } else {
+        status("telegram", tg.available ? "Pending" : "Needs telethon", "");
+      }
+
+      if (m.configured) status("mt5", "Configured", "ok");
+      else status("mt5", m.available ? "Pending" : "Windows only", "");
+
+      status("ai", ai.has_key ? "Key set" : "Regex", ai.has_key ? "ok" : "warn");
+      if (ai.provider) $("#suAiProvider").value = ai.provider;
+      if (ai.mode) $("#suAiMode").value = ai.mode;
+
+      setMode(state.dry_run ? "dry" : "live");
+      status("mode", state.dry_run ? "Dry-run" : "Live", state.dry_run ? "" : "warn");
+      $("#suModeNote").textContent = state.dry_run
+        ? "Dry-run simulates orders on the built-in simulator — no real money. Recommended until everything is verified."
+        : "⚠ Live trading places REAL orders with real money on your MT5 account.";
+
+      $("#setupStart").disabled = !state.ready;
+      $("#setupReady").textContent = state.ready ? "Everything's ready — start the bot."
+        : !tg.connected ? "Connect Telegram to continue"
+        : !tg.channel ? "Choose a channel to listen to"
+        : (!state.dry_run && !m.configured) ? "Connect MetaTrader 5 for live trading"
+        : "Almost there…";
+    }
+
+    function noteResult(sel, text, ok) {
+      const n = $(sel); n.textContent = text;
+      n.classList.remove("ok", "bad"); n.classList.add(ok ? "ok" : "bad");
+      n.classList.add("conn__result");
+    }
+
+    // Telegram
+    $("#suTgBtn").addEventListener("click", () =>
+      Wizard.open(() => { refresh(); openConnector("mt5"); }));
+
+    // MT5 — test & save
+    $("#suMtBtn").addEventListener("click", async (e) => {
+      setBusy(e.currentTarget, true);
+      try {
+        const r = await post("/api/mt5/test", {
+          login: $("#suMtLogin").value.trim(), password: $("#suMtPass").value,
+          server: $("#suMtServer").value.trim(), symbol: $("#suMtSymbol").value.trim(),
+          terminal_path: $("#suMtPath").value.trim(),
+        });
+        noteResult("#suMtNote", r.ok
+          ? `✓ Connected — balance ${fMoney(r.balance)} on ${r.symbol}`
+          : "✗ " + (r.error || "Connection failed"), r.ok);
+        await refresh();
+        if (r.ok) openConnector("ai");
+      } catch (ex) { noteResult("#suMtNote", "✗ " + ex.message, false); }
+      finally { setBusy(e.currentTarget, false); }
+    });
+
+    // AI — save
+    $("#suAiBtn").addEventListener("click", async () => {
+      const body = { mode: $("#suAiMode").value, provider: $("#suAiProvider").value };
+      const key = $("#suAiKey").value.trim();
+      if (key) body[body.provider === "gemini" ? "gemini_api_key" : "anthropic_api_key"] = key;
+      try { await post("/api/ai/save", body); toast("AI settings saved"); await refresh(); openConnector("mode"); }
+      catch (e) { toast("Save failed"); }
+    });
+
+    // Mode toggle
+    el.querySelectorAll("#suMode .seg__opt").forEach((o) =>
+      o.addEventListener("click", async () => {
+        const dry = o.dataset.mode === "dry";
+        if (!dry && !confirm("Live trading places REAL orders with real money. Continue?")) return;
+        setMode(o.dataset.mode);
+        try { await post("/api/setup/dry-run", { dry_run: dry }); await refresh(); } catch (e) { /* ignore */ }
+      }));
+
+    // Start
+    $("#setupStart").addEventListener("click", async (e) => {
+      setBusy(e.currentTarget, true);
+      close();
+      await startBot("real");
+    });
+    $("#setupClose").addEventListener("click", close);
+    el.addEventListener("click", (e) => { if (e.target === el) close(); });
+
+    function open() {
+      el.classList.remove("is-hidden");
+      refresh().then(() => {
+        const firstPending = ["telegram", "mt5", "ai", "mode"].find((k) => {
+          const c = el.querySelector(`.connector[data-key="${k}"]`);
+          return c && !c.classList.contains("is-done");
+        });
+        openConnector(firstPending || "telegram");
+      });
+    }
+    function close() { el.classList.add("is-hidden"); }
+    return { open, close, refresh };
   })();
 
   $("#powerBtn").addEventListener("click", async () => {

@@ -43,13 +43,13 @@
       </ul>
 
       <div class="boot__actions" id="bootActions">
-        <button class="boot__btn boot__btn--primary" id="startDemoBtn" type="button">
+        <button class="boot__btn boot__btn--primary" id="startRealBtn" type="button">Set up &amp; connect</button>
+        <button class="boot__btn" id="startDemoBtn" type="button">
           <span class="boot__spinner" aria-hidden="true"></span>
           <span>Start live demo</span>
         </button>
-        <button class="boot__btn" id="startRealBtn" type="button">Connect &amp; start bot</button>
       </div>
-      <small class="boot__note" id="bootNote">No keys needed for the demo — experience the bot live.</small>
+      <small class="boot__note" id="bootNote">First time? “Set up &amp; connect” walks you through everything. Or try the demo — no keys needed.</small>
     </div>
   </div>
 
@@ -64,6 +64,102 @@
       <button type="submit">Unlock</button>
       <small id="loginError"></small>
     </form>
+  </div>
+
+  <!-- ───────────────────────── First-time Setup guide ────────────────────── -->
+  <div class="setup is-hidden" id="setup" role="dialog" aria-modal="true">
+    <div class="setup__card">
+      <button class="wizard__close" id="setupClose" type="button" aria-label="Close">✕</button>
+      <div class="setup__head">
+        <span class="boot__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M12 7.5l4 2.25v4.5L12 16.5l-4-2.25v-4.5z" fill="currentColor" opacity="0.16"/></svg>
+        </span>
+        <h2>Set up your bot</h2>
+        <p>Connect everything below, then start trading. Takes about 2 minutes.</p>
+      </div>
+
+      <div class="setup__list" id="setupList">
+        <!-- Telegram -->
+        <section class="connector" data-key="telegram">
+          <button class="connector__row" type="button" data-toggle>
+            <span class="connector__num">1</span>
+            <span class="connector__main"><b>Telegram</b><small>Read your signals channel</small></span>
+            <span class="connector__status" data-status>Pending</span>
+          </button>
+          <div class="connector__body">
+            <p class="conn__sum" id="suTgSum">Sign in and choose the channel to listen to.</p>
+            <button class="wiz__btn wiz__btn--primary" id="suTgBtn" type="button">Connect Telegram</button>
+          </div>
+        </section>
+
+        <!-- MetaTrader 5 -->
+        <section class="connector" data-key="mt5">
+          <button class="connector__row" type="button" data-toggle>
+            <span class="connector__num">2</span>
+            <span class="connector__main"><b>MetaTrader 5</b><small>Where trades are executed</small></span>
+            <span class="connector__status" data-status>Pending</span>
+          </button>
+          <div class="connector__body">
+            <div class="conn__grid">
+              <label>Login<input id="suMtLogin" inputmode="numeric" placeholder="12345678"></label>
+              <label>Server<input id="suMtServer" placeholder="YourBroker-Server"></label>
+            </div>
+            <label>Password<input id="suMtPass" type="password" placeholder="••••••••"></label>
+            <div class="conn__grid">
+              <label>Symbol<input id="suMtSymbol" placeholder="XAUUSD"></label>
+              <label>Terminal path <span class="opt">(optional)</span><input id="suMtPath" placeholder="…/terminal64.exe"></label>
+            </div>
+            <button class="wiz__btn wiz__btn--primary" id="suMtBtn" type="button"><span class="wiz__spin"></span><span>Test &amp; save connection</span></button>
+            <p class="conn__note" id="suMtNote">MetaTrader 5 runs on Windows. On macOS/Linux you can still set this up and run in dry-run.</p>
+          </div>
+        </section>
+
+        <!-- AI parser -->
+        <section class="connector" data-key="ai">
+          <button class="connector__row" type="button" data-toggle>
+            <span class="connector__num">3</span>
+            <span class="connector__main"><b>AI parser</b><small>Optional — smarter signal reading</small></span>
+            <span class="connector__status" data-status>Optional</span>
+          </button>
+          <div class="connector__body">
+            <div class="conn__grid">
+              <label>Provider
+                <select id="suAiProvider"><option value="gemini">Gemini (fastest)</option><option value="anthropic">Claude</option></select>
+              </label>
+              <label>Mode
+                <select id="suAiMode"><option value="hybrid">Hybrid (recommended)</option><option value="ai">AI only</option><option value="regex">Regex (no key)</option></select>
+              </label>
+            </div>
+            <label>API key <span class="opt">(leave blank to use regex)</span><input id="suAiKey" type="password" placeholder="AI provider API key"></label>
+            <a class="wizard__link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free Gemini key →</a>
+            <button class="wiz__btn wiz__btn--primary" id="suAiBtn" type="button">Save AI settings</button>
+          </div>
+        </section>
+
+        <!-- Trading mode -->
+        <section class="connector" data-key="mode">
+          <button class="connector__row" type="button" data-toggle>
+            <span class="connector__num">4</span>
+            <span class="connector__main"><b>Trading mode</b><small>Practice safely first</small></span>
+            <span class="connector__status" data-status>Dry-run</span>
+          </button>
+          <div class="connector__body">
+            <div class="seg" id="suMode">
+              <button class="seg__opt is-active" type="button" data-mode="dry">Dry-run (safe)</button>
+              <button class="seg__opt" type="button" data-mode="live">Live trading</button>
+            </div>
+            <p class="conn__note" id="suModeNote">Dry-run simulates orders on the built-in simulator — no real money. Recommended until everything is verified.</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="setup__foot">
+        <span class="setup__ready" id="setupReady">Connect Telegram to continue</span>
+        <button class="boot__btn boot__btn--primary" id="setupStart" type="button" disabled>
+          <span class="boot__spinner"></span><span>Start the bot</span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- ───────────────────────── Telegram connect wizard ───────────────────── -->
