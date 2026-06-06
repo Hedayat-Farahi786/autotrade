@@ -56,14 +56,33 @@ body {
    so sticky/fixed (top bar, boot overlay, control bar) work correctly. */
 
 /* ───────────────────────────── Top bar ───────────────────────────── */
+.stickytop { position: sticky; top: 0; z-index: 20; }
 .topbar {
-  position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   padding: max(16px, env(safe-area-inset-top)) var(--space) 14px;
   background: linear-gradient(180deg, rgba(0,0,0,0.92), rgba(0,0,0,0.6) 70%, transparent);
   backdrop-filter: blur(14px) saturate(120%);
   -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+/* Unmistakable LIVE banner — shown only when dry_run is off and bot is up */
+.livebar {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  padding: 7px 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #000; background: var(--white);
+  box-shadow: 0 6px 24px rgba(255,255,255,0.12);
+  animation: liveBarIn 0.45s var(--ease-out);
+}
+.livebar__dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #000;
+  animation: pulseDark 1.3s var(--ease) infinite;
+}
+@keyframes liveBarIn { from { opacity: 0; transform: translateY(-100%); } to { opacity: 1; transform: none; } }
+@keyframes pulseDark {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0.5); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px rgba(0,0,0,0); opacity: 0.55; }
 }
 
 .brand { display: flex; align-items: center; gap: 11px; }

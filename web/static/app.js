@@ -134,6 +134,9 @@
       ? "Bot offline" : live ? "Live trading" : "Dry-run · simulated";
     dry.dataset.live = live ? "1" : "0";
 
+    // Unmistakable LIVE banner — only when real trading is actually active.
+    $("#liveBanner").classList.toggle("is-hidden", !(up && live));
+
     toggleConn($("#connTg"), s && s.telegram_connected);
     toggleConn($("#connMt5"), s && s.mt5_connected);
     $("#connState").textContent = !s || !s.online
