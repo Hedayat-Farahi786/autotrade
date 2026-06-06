@@ -111,6 +111,7 @@
               <label>Terminal path <span class="opt">(optional)</span><input id="suMtPath" placeholder="…/terminal64.exe"></label>
             </div>
             <button class="wiz__btn wiz__btn--primary" id="suMtBtn" type="button"><span class="wiz__spin"></span><span>Test &amp; save connection</span></button>
+            <button class="wiz__btn wiz__btn--ghost is-hidden" id="suMtClear" type="button">Clear saved MT5</button>
             <p class="conn__note" id="suMtNote">MetaTrader 5 runs on Windows. On macOS/Linux you can still set this up and run in dry-run.</p>
           </div>
         </section>
@@ -238,8 +239,8 @@
         <span id="modeLabel">—</span>
       </span>
       <div class="conns">
-        <span class="conn" id="connTg" title="Telegram"><span class="conn__dot"></span>TG</span>
-        <span class="conn" id="connMt5" title="MetaTrader 5"><span class="conn__dot"></span>MT5</span>
+        <span class="conn" id="connTg" title="Telegram — click to reconfigure"><span class="conn__dot"></span>TG</span>
+        <span class="conn" id="connMt5" title="MetaTrader 5 — click to reconfigure"><span class="conn__dot"></span>MT5</span>
       </div>
       <button class="iconbtn" id="settingsBtn" type="button" title="Settings &amp; setup" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 4a6.6 6.6 0 00-.1-1.1l2-1.6-2-3.4-2.4 1a6.6 6.6 0 00-1.9-1.1l-.4-2.6H9.4l-.4 2.6a6.6 6.6 0 00-1.9 1.1l-2.4-1-2 3.4 2 1.6a6.6 6.6 0 000 2.2l-2 1.6 2 3.4 2.4-1a6.6 6.6 0 001.9 1.1l.4 2.6h4.2l.4-2.6a6.6 6.6 0 001.9-1.1l2.4 1 2-3.4-2-1.6c.1-.4.1-.7.1-1.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>

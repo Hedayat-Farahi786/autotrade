@@ -6,7 +6,7 @@ them up) and can *test* the real MT5 connection before you trust it.
 """
 from __future__ import annotations
 
-from bot.config import MT5Config, get_config, save_runtime
+from bot.config import MT5Config, clear_runtime_section, get_config, save_runtime
 from bot.logger import get_logger
 
 log = get_logger("setup")
@@ -66,6 +66,11 @@ def save_mt5(login, password, server, terminal_path=None, symbol=None) -> dict:
         "symbol": (symbol or "XAUUSD"),
     })
     return {"ok": True, "configured": bool(sec.get("login") and sec.get("server"))}
+
+
+def clear_mt5() -> dict:
+    clear_runtime_section("mt5")
+    return {"ok": True, "configured": False}
 
 
 # --------------------------------------------------------------------------- #
@@ -131,7 +136,8 @@ async def setup_state(tg_state: dict) -> dict:
                      "connected": tg_ok, "channel": tg_state.get("channel", ""),
                      "me": tg_state.get("me")},
         "mt5": {"available": _MT5_AVAILABLE, "configured": mt5_configured,
-                "symbol": cfg.mt5.symbol, "server": cfg.mt5.server},
+                "symbol": cfg.mt5.symbol, "server": cfg.mt5.server,
+                "login": cfg.mt5.login, "terminal_path": cfg.mt5.terminal_path},
         "ai": {"mode": cfg.parser.mode, "provider": cfg.parser.provider,
                "has_key": ai_has_key},
         "dry_run": cfg.dry_run,

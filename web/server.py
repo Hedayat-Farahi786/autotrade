@@ -531,6 +531,11 @@ async def api_mt5_save(payload: dict[str, Any]) -> JSONResponse:
         payload.get("terminal_path"), payload.get("symbol")))
 
 
+@app.post("/api/mt5/clear", dependencies=[Depends(require_token)])
+async def api_mt5_clear() -> JSONResponse:
+    return JSONResponse(setup_mod.clear_mt5())
+
+
 @app.post("/api/ai/save", dependencies=[Depends(require_token)])
 async def api_ai_save(payload: dict[str, Any]) -> JSONResponse:
     return JSONResponse(setup_mod.save_ai(

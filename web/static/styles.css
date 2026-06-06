@@ -123,6 +123,8 @@ body {
 }
 .conn.is-on { color: var(--text); border-color: var(--line-strong); }
 .conn.is-on .conn__dot { background: var(--white); box-shadow: 0 0 10px rgba(255,255,255,0.55); }
+.conn { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.conn:hover { border-color: var(--line-strong); color: var(--text); }
 
 /* ───────────────────────────── Layout ───────────────────────────── */
 .layout {

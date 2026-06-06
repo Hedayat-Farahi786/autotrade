@@ -524,6 +524,8 @@
   $("#startDemoBtn").addEventListener("click", () => startBot("demo"));
   $("#startRealBtn").addEventListener("click", () => Setup.open());
   $("#settingsBtn").addEventListener("click", () => Setup.open());
+  $("#connTg").addEventListener("click", () => Setup.open("telegram"));
+  $("#connMt5").addEventListener("click", () => Setup.open("mt5"));
 
   /* ----------------------------------------------- Telegram connect wizard */
   const Wizard = (() => {
@@ -638,6 +640,7 @@
     async function selectChannel(peer, title) {
       try {
         await post("/api/telegram/select-channel", { channel: peer });
+        toast(`Channel set: ${title || peer}`);
         gotoReady(title || peer);
       } catch (ex) { err(ex.message); }
     }
@@ -730,8 +733,18 @@
         dis.classList.add("is-hidden");
       }
 
-      if (m.configured) status("mt5", "Configured", "ok");
-      else status("mt5", m.available ? "Pending" : "Windows only", "");
+      if (m.configured) {
+        status("mt5", "Configured", "ok");
+        $("#suMtClear").classList.remove("is-hidden");
+        // Prefill known fields (never the password).
+        if (m.login && !$("#suMtLogin").value) $("#suMtLogin").value = m.login;
+        if (m.server && !$("#suMtServer").value) $("#suMtServer").value = m.server;
+        if (m.terminal_path && !$("#suMtPath").value) $("#suMtPath").value = m.terminal_path;
+      } else {
+        status("mt5", m.available ? "Pending" : "Windows only", "");
+        $("#suMtClear").classList.add("is-hidden");
+      }
+      if (m.symbol && !$("#suMtSymbol").value) $("#suMtSymbol").value = m.symbol;
 
       status("ai", ai.has_key ? "Key set" : "Regex", ai.has_key ? "ok" : "warn");
       if (ai.provider) $("#suAiProvider").value = ai.provider;
@@ -778,10 +791,22 @@
         noteResult("#suMtNote", r.ok
           ? `✓ Connected — balance ${fMoney(r.balance)} on ${r.symbol}`
           : "✗ " + (r.error || "Connection failed"), r.ok);
+        toast(r.ok ? "MetaTrader 5 connected ✓" : "MT5 settings saved");
         await refresh();
         if (r.ok) openConnector("ai");
       } catch (ex) { noteResult("#suMtNote", "✗ " + ex.message, false); }
       finally { setBusy(e.currentTarget, false); }
+    });
+    $("#suMtClear").addEventListener("click", async () => {
+      if (!confirm("Remove the saved MetaTrader 5 credentials?")) return;
+      try {
+        await post("/api/mt5/clear", {});
+        ["suMtLogin", "suMtServer", "suMtPass", "suMtPath"].forEach((id) => { $("#" + id).value = ""; });
+        $("#suMtNote").textContent = "Cleared. Enter new MetaTrader 5 credentials above.";
+        $("#suMtNote").classList.remove("ok", "bad");
+        toast("MT5 settings cleared");
+        await refresh();
+      } catch (e) { toast("Could not clear"); }
     });
 
     // AI — save
@@ -799,7 +824,11 @@
         const dry = o.dataset.mode === "dry";
         if (!dry && !confirm("Live trading places REAL orders with real money. Continue?")) return;
         setMode(o.dataset.mode);
-        try { await post("/api/setup/dry-run", { dry_run: dry }); await refresh(); } catch (e) { /* ignore */ }
+        try {
+          await post("/api/setup/dry-run", { dry_run: dry });
+          toast(dry ? "Switched to dry-run (safe)" : "Switched to LIVE trading");
+          await refresh();
+        } catch (e) { /* ignore */ }
       }));
 
     // Start
@@ -811,9 +840,10 @@
     $("#setupClose").addEventListener("click", close);
     el.addEventListener("click", (e) => { if (e.target === el) close(); });
 
-    function open() {
+    function open(target) {
       el.classList.remove("is-hidden");
       refresh().then(() => {
+        if (target) { openConnector(target); return; }
         const firstPending = ["telegram", "mt5", "ai", "mode"].find((k) => {
           const c = el.querySelector(`.connector[data-key="${k}"]`);
           return c && !c.classList.contains("is-done");

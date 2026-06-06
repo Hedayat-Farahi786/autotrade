@@ -243,6 +243,24 @@ def save_runtime(section: str, updates: dict, path: str | None = None) -> dict:
     return result
 
 
+def clear_runtime_section(section: str, path: str | None = None) -> None:
+    """Remove a section of UI-saved settings (e.g. disconnect MT5)."""
+
+    import json
+    import os
+
+    path = path or RUNTIME_FILE
+    data = _load_runtime(path)
+    if section in data:
+        data.pop(section, None)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, path)
+    reset_cache()
+
+
 def _load_runtime_telegram(path: str | None = None) -> dict:
     """Back-compat: return just the telegram section."""
 

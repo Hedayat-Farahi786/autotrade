@@ -37,6 +37,14 @@ async def test_mt5_test_reports_windows_only_here():
     assert C.get_config(require_secrets=False).mt5.server == "S"
 
 
+def test_mt5_clear_removes_config():
+    S.save_mt5("999", "p", "Srv")
+    assert C.get_config(require_secrets=False).mt5.login == 999
+    assert S.clear_mt5() == {"ok": True, "configured": False}
+    cfg = C.get_config(require_secrets=False)
+    assert cfg.mt5.login is None and cfg.mt5.server is None
+
+
 async def test_ai_save_persists_key():
     r = S.save_ai(mode="hybrid", provider="gemini", gemini_api_key="KEY123")
     assert r["ok"] and r["has_key"] is True
