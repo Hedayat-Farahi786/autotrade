@@ -39,7 +39,9 @@ and only enables **Start the bot** once it's all ready:
 4. **Trading mode** — Dry-run (safe simulator) or Live, with a clear warning.
 
 Everything you enter is saved to `state/runtime.json` (and the Telegram
-`.session`), so the bot then starts fully connected and non-interactive.
+`.session`), so the bot then starts fully connected and non-interactive. A
+**settings gear** in the top bar reopens this guide anytime — to change the
+channel, switch to live, or **disconnect** your Telegram account.
 
 **Try the full live experience with no API keys** — open the dashboard and click
 **Start live demo**; a built-in simulator streams a realistic session (connecting

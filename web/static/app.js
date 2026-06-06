@@ -523,6 +523,7 @@
 
   $("#startDemoBtn").addEventListener("click", () => startBot("demo"));
   $("#startRealBtn").addEventListener("click", () => Setup.open());
+  $("#settingsBtn").addEventListener("click", () => Setup.open());
 
   /* ----------------------------------------------- Telegram connect wizard */
   const Wizard = (() => {
@@ -714,14 +715,19 @@
     function render() {
       if (!state) return;
       const tg = state.telegram, m = state.mt5, ai = state.ai;
+      const dis = $("#suTgDisconnect");
       if (tg.connected && tg.channel) {
         status("telegram", "Connected", "ok");
         $("#suTgSum").innerHTML = `Connected as <b>@${esc((tg.me && tg.me.username) || "you")}</b> · listening to <b>${esc(tg.channel)}</b>`;
         $("#suTgBtn").textContent = "Change account / channel";
+        dis.classList.remove("is-hidden");
       } else if (tg.connected) {
         status("telegram", "Pick channel", "warn");
+        dis.classList.remove("is-hidden");
       } else {
         status("telegram", tg.available ? "Pending" : "Needs telethon", "");
+        $("#suTgBtn").textContent = "Connect Telegram";
+        dis.classList.add("is-hidden");
       }
 
       if (m.configured) status("mt5", "Configured", "ok");
@@ -754,6 +760,11 @@
     // Telegram
     $("#suTgBtn").addEventListener("click", () =>
       Wizard.open(() => { refresh(); openConnector("mt5"); }));
+    $("#suTgDisconnect").addEventListener("click", async () => {
+      if (!confirm("Disconnect this Telegram account? You'll need to sign in again.")) return;
+      try { await post("/api/telegram/logout", {}); toast("Telegram disconnected"); await refresh(); }
+      catch (e) { toast("Could not disconnect"); }
+    });
 
     // MT5 — test & save
     $("#suMtBtn").addEventListener("click", async (e) => {
